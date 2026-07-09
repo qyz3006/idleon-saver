@@ -30,9 +30,8 @@ from idleon_saver.backup import (
     open_in_explorer,
     restore_backup,
 )
-# 字体工具：用 kivy 自带等宽字体替换 kv 中已移除的系统字体（冻结态可解析）。
-from idleon_saver.gui.fonts import apply_mono_font_to
 from idleon_saver.editor import (
+    SaveCorruptedError,
     encode_to_stencyl,
     is_game_running,
     load_wrapped_json,
@@ -138,10 +137,9 @@ class EditorScreen(Screen):
         super().__init__(**kwargs)
         # 备份根目录默认放在工具自身目录，与游戏存档隔离（设计 §7）
         self._backups_root = user_dir() / "backups"
-        # 用 kivy 自带等宽字体（IdleonMono）替换 kv 里已移除的 "Courier New"；
-        # 冻结态一定可解析，失败则回退 kivy 默认字体，绝不因字体崩溃。
-        # 在构造期就应用，确保首次布局前 font_name 已合法（避免启动崩溃）。
-        apply_mono_font_to(self.ids.get("json_input"))
+        # 不再为编辑框指定等宽字体：kivy 自带 RobotoMono 为纯拉丁字体，无法渲染
+        # 中文（玩家名等），套上去会导致方块（tofu）。改用 kivy 默认字体，用户机器
+        # 的默认字体即可正常显示中文，且冻结态一定可解析，不会因字体崩溃。
 
     # ------------------------------------------------------------------ #
     # 弹窗辅助（自带，避免与 gui.main 顶层循环依赖）
@@ -150,7 +148,9 @@ class EditorScreen(Screen):
         try:
             self._popup.dismiss()
         except AttributeError as exc:
-            Logger.exception("Popup dismissed before being created", exc_info=exc)
+            # 注意：绝不用 exc_info= 或把异常对象作为日志参数——kivy 的
+            # Logger.format 会对 record 做 deepcopy，traceback 不可 pickle 会崩溃。
+            Logger.warning("Popup dismissed before being created: %s", exc)
 
     def popup_error(self, text):
         from idleon_saver.gui.main import ErrorDialog  # 运行期延迟导入
@@ -171,8 +171,7 @@ class EditorScreen(Screen):
         self.return_screen = self.manager.previous() or "end"
         self.status = "加载中"
         self.check_game_running()
-        # 双保险：构造期若因 ids 尚未就绪而未生效，进入屏时再补一次等宽字体应用。
-        apply_mono_font_to(self.ids.get("json_input"))
+        # 进入屏即加载存档（不再应用自定义字体，避免中文方块）。
         self.load_save()
 
     def _ensure_located(self) -> bool:
@@ -202,8 +201,22 @@ class EditorScreen(Screen):
                 Path(self.ldb_path),
                 Path(self.idleon_path) if self.idleon_path else None,
             )
+        except SaveCorruptedError as exc:
+            # 存档 LevelDB 损坏（如游戏异常退出导致块损坏）：给出友好提示，
+            # 引导用户用『备份管理』还原或关闭游戏后重试，而不是抛裸 traceback。
+            self.popup_error(
+                text=(
+                    "存档损坏：LevelDB 存在损坏块，无法读取。\n\n"
+                    "建议：通过『备份管理』还原最近备份，"
+                    "或关闭游戏后重新打开本工具。"
+                )
+            )
+            self.status = "加载失败"
+            return
         except Exception as exc:
-            logger.exception(exc)
+            # 绝不用 exc_info= 或把异常对象作为日志参数：kivy 的 Logger.format
+            # 会对 record 做 deepcopy，traceback 不可 pickle 会崩溃。字符串化即可。
+            logger.error("加载存档失败：%s", exc)
             self.popup_error(text=f"加载存档失败：{exc}")
             self.status = "加载失败"
             return
@@ -236,7 +249,7 @@ class EditorScreen(Screen):
             self.dismiss_popup()
             self.load_save()
         except Exception as exc:
-            logger.exception(exc)
+            logger.error("设置目录失败：%s", exc)
             self.popup_error(text=f"设置目录失败：{exc}")
 
     # ------------------------------------------------------------------ #
@@ -285,7 +298,7 @@ class EditorScreen(Screen):
                 Path(self.idleon_path) if self.idleon_path else None,
             )
         except Exception as exc:
-            logger.exception(exc)
+            logger.error("保存失败：%s", exc)
             self.popup_error(text=f"保存失败：{exc}")
             self.status = "保存失败"
             return
@@ -301,7 +314,7 @@ class EditorScreen(Screen):
         try:
             dest = backup_leveldb(Path(self.ldb_path), self._backups_root)
         except Exception as exc:
-            logger.exception(exc)
+            logger.error("备份失败：%s", exc)
             self.popup_error(text=f"备份失败：{exc}")
             return
         self.status = f"已备份：{dest.name}"
@@ -311,7 +324,7 @@ class EditorScreen(Screen):
         try:
             open_in_explorer(self._backups_root)
         except Exception as exc:
-            logger.exception(exc)
+            logger.error("无法打开备份目录：%s", exc)
             self.popup_error(text=f"无法打开备份目录：{exc}")
 
     def show_backups(self):
@@ -340,7 +353,7 @@ class EditorScreen(Screen):
                 Path(backup_path), Path(self.ldb_path), self._backups_root
             )
         except Exception as exc:
-            logger.exception(exc)
+            logger.error("还原失败：%s", exc)
             self.popup_error(text=f"还原失败：{exc}")
             return
         self.status = "已还原"

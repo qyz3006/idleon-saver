@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 import os
 import sys
 import threading
@@ -36,9 +35,12 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen, ScreenManager
 
-# Make other modules use Kivy's logger.
-logging.Logger.manager.root = Logger
-
+# 不再劫持 Python 根 logger 去替换成 kivy 的 Logger。
+# 原因：kivy 的 Logger.format 会对日志记录做 copy.deepcopy，而异常 traceback
+# 对象不可 pickle，会触发 "cannot pickle 'traceback' object" 崩溃并污染日志。
+# 现在 idleon-saver 自己的日志经 configure_logging() 的 handler 写到
+# sys.__stderr__；kivy 自带日志走 kivy 自己的 Logger。二者互不干扰，
+# 既不会触发 kivy 的 deepcopy/递归，也不会再出现上面的崩溃。
 # Ensure idleon-saver's own loggers route to a console handler too.
 from idleon_saver.log import configure_logging
 configure_logging()
