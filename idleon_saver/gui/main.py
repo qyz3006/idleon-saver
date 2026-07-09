@@ -323,9 +323,16 @@ def main():
         # skipcq: PYL-W0212
         resource_add_path(os.path.join(sys._MEIPASS))  # type: ignore[attr-defined]
 
-    Logger.info(f"Idleon Saver: version {importlib.metadata.version('idleon_saver')}")
+    try:
+        version = importlib.metadata.version("idleon_saver")
+    except importlib.metadata.PackageNotFoundError:
+        version = "unknown"
+    Logger.info(f"Idleon Saver: version {version}")
 
-    asyncio.run(IdleonSaver(kv_file="main.kv").async_run())
+    # 关键修复：kv_file 必须用 __file__ 解析绝对路径，否则冻结态下
+    # kivy 按 exe 目录/cwd 查找会找不到 main.kv 而崩溃。
+    kv_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "main.kv")
+    asyncio.run(IdleonSaver(kv_file=kv_file).async_run())
 
 
 if __name__ == "__main__":

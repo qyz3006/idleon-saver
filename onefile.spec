@@ -21,6 +21,7 @@ a = Analysis(
         ("idleon_saver/scripts/*.js", "idleon_saver/scripts"),
         ("idleon_saver/data/vendored/maps/*.json", "idleon_saver/data/vendored/maps"),
         ("idleon_saver/data/vendored/wiki/*.json", "idleon_saver/data/vendored/wiki"),
+        ("idleon_saver/gui/main.kv", "idleon_saver/gui"),
     ],
     hookspath=hookspath(),
     hooksconfig={},
