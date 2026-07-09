@@ -30,6 +30,8 @@ from idleon_saver.backup import (
     open_in_explorer,
     restore_backup,
 )
+# 字体工具：用 kivy 自带等宽字体替换 kv 中已移除的系统字体（冻结态可解析）。
+from idleon_saver.gui.fonts import apply_mono_font_to
 from idleon_saver.editor import (
     encode_to_stencyl,
     is_game_running,
@@ -136,6 +138,10 @@ class EditorScreen(Screen):
         super().__init__(**kwargs)
         # 备份根目录默认放在工具自身目录，与游戏存档隔离（设计 §7）
         self._backups_root = user_dir() / "backups"
+        # 用 kivy 自带等宽字体（IdleonMono）替换 kv 里已移除的 "Courier New"；
+        # 冻结态一定可解析，失败则回退 kivy 默认字体，绝不因字体崩溃。
+        # 在构造期就应用，确保首次布局前 font_name 已合法（避免启动崩溃）。
+        apply_mono_font_to(self.ids.get("json_input"))
 
     # ------------------------------------------------------------------ #
     # 弹窗辅助（自带，避免与 gui.main 顶层循环依赖）
@@ -165,6 +171,8 @@ class EditorScreen(Screen):
         self.return_screen = self.manager.previous() or "end"
         self.status = "加载中"
         self.check_game_running()
+        # 双保险：构造期若因 ids 尚未就绪而未生效，进入屏时再补一次等宽字体应用。
+        apply_mono_font_to(self.ids.get("json_input"))
         self.load_save()
 
     def _ensure_located(self) -> bool:

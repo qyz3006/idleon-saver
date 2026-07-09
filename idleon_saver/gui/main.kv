@@ -229,7 +229,11 @@
         TextInput:
             id: json_input
             text: root.raw_text
-            font_name: "Courier New"
+            # 注意：绝不要在此写任何系统字体名（如 "Courier New"）。冻结 exe 中
+            # kivy 的 resolve_font_name 不会搜索系统字体目录，找不到文件会
+            # OSError 并在异常处理里再抛 KeyError 导致启动即崩溃。等宽字体由
+            # editor.py 在 Python 侧用 kivy 自带字体注册为 "IdleonMono" 后动态
+            # 应用到本控件；注册/应用失败则回退 kivy 默认字体（一定可解析）。
             font_size: 13
             multiline: True
             size_hint_y: 1
