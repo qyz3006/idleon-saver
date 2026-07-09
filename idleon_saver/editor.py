@@ -43,6 +43,9 @@ except ImportError:  # pragma: no cover - 仅无 plyvel 的测试环境
 
 from idleon_saver.stencyl.decoder import StencylDecoder
 from idleon_saver.stencyl.encoder import StencylEncoder
+# 纯 Python LevelDB 读取器：当 plyvel 因版本不兼容读不了 DB 时的首选回退。
+# 直接解析 .ldb/.log 原始文件（含 Snappy 解压 + WAL 重组），不依赖 plyvel。
+from idleon_saver.pure_ldb import read_value_by_key_suffix as _pure_read_value
 
 logger = logging.getLogger(__name__)
 
@@ -154,8 +157,11 @@ def _try_repair_and_read(
 def load_wrapped_json(ldb: Path, idleon: Optional[Path] = None) -> dict:
     """读取 leveldb 存档 → 解码为 wrapped JSON（含 start/contents/end）。
 
-    读取健壮性：主路径撞到 CorruptionError 时，自动走非破坏性修复回退
-    （复制 → repair_db → 读副本）。原存档绝不被修改。
+    读取健壮性（三层回退，原存档绝不被修改）：
+    1. plyvel 主路径：标准 LevelDB 读取（兼容老版本 DB）。
+    2. 纯 Python 读取器：直接解析 .ldb/.log 原始文件（Snappy + WAL 重组），
+       不依赖 plyvel，解决新版 Chromium/Electron 写出的 DB plyvel 读不了的问题。
+    3. plyvel repair 副本：复制 DB → repair_db 重建 MANIFEST → 读副本。
 
     Args:
         ldb: 存档目录（leveldb）。
@@ -165,29 +171,50 @@ def load_wrapped_json(ldb: Path, idleon: Optional[Path] = None) -> dict:
         wrapped dict。
 
     Raises:
-        SaveCorruptedError: LevelDB 读取失败（含 plyvel 原始错误文本）。
+        SaveCorruptedError: 全部回退失败（含各层原始错误文本）。
         KeyError: 存档 key 不存在。
     """
+    # --- 第 1 层：plyvel 主路径 ---
     primary_error: Optional[Exception] = None
-    try:
-        with get_db(ldb) as db:  # type: ignore[operator]
-            key, kerr = _find_save_key(db, idleon)
-            if key is None:
-                primary_error = kerr or KeyError("未找到存档 key")
-            else:
-                try:
-                    raw = db.get(key)
-                except CorruptionError as exc:
-                    primary_error = exc
+    if get_db is None:
+        # plyvel 未安装（测试环境 / 冻结 exe 缺 plyvel）→ 直接跳到纯 Python 读取器
+        primary_error = ImportError("plyvel 未安装")
+    else:
+        try:
+            with get_db(ldb) as db:  # type: ignore[operator]
+                key, kerr = _find_save_key(db, idleon)
+                if key is None:
+                    primary_error = kerr or KeyError("未找到存档 key")
                 else:
-                    if raw is None:
-                        primary_error = KeyError(f"存档 key 无数据：{key!s}")
+                    try:
+                        raw = db.get(key)
+                    except CorruptionError as exc:
+                        primary_error = exc
                     else:
-                        return _decode_raw(raw)
-    except CorruptionError as exc:
-        primary_error = exc
+                        if raw is None:
+                            primary_error = KeyError(f"存档 key 无数据：{key!s}")
+                        else:
+                            return _decode_raw(raw)
+        except CorruptionError as exc:
+            primary_error = exc
 
-    # 主路径因 CorruptionError 失败 → 非破坏性修复回退
+    # --- 第 2 层：纯 Python 读取器（不依赖 plyvel） ---
+    # 首选回退：直接解析 .ldb/.log 原始文件。对新版 Chromium LevelDB 格式
+    # （plyvel 因 MANIFEST/格式版本不兼容读不了的情况）往往一步到位。
+    logger.info("plyvel 主路径失败 (%s)，尝试纯 Python 读取器", primary_error)
+    try:
+        raw = _pure_read_value(ldb, MY_SAVE_SUFFIX)
+        if raw is not None:
+            logger.info("纯 Python 读取器成功取到 mySave 值 (%d 字节)", len(raw))
+            return _decode_raw(raw)
+        logger.info("纯 Python 读取器未找到 mySave key")
+    except Exception as exc:
+        logger.warning("纯 Python 读取器失败：%s", exc)
+        pure_error = exc
+    else:
+        pure_error = KeyError("纯 Python 读取器未找到 mySave key")
+
+    # --- 第 3 层：plyvel repair 副本（仅 CorruptionError 时有意义） ---
     if isinstance(primary_error, CorruptionError):
         logger.warning(
             "LevelDB 主路径读取失败 (%s: %s)；尝试修复副本回退",
@@ -198,19 +225,86 @@ def load_wrapped_json(ldb: Path, idleon: Optional[Path] = None) -> dict:
         if repaired is not None:
             logger.warning("修复副本回退成功，已从副本读取存档（原存档未修改）")
             return repaired
-        # 修复也失败：报错里带上 plyvel 原始错误 + 修复错误，便于定位
-        raise SaveCorruptedError(
-            f"存档读取失败。\n"
-            f"原始错误：{type(primary_error).__name__}: {primary_error}\n"
-            f"已尝试修复副本读取，仍失败：{rerr}\n\n"
-            f"可能原因：游戏版本更新导致 LevelDB 格式与当前 plyvel 不兼容，"
-            f"或存档确实存在损坏块。可尝试通过『备份管理』还原最近备份。"
-        ) from primary_error
+    else:
+        rerr = None
+
+    # --- 全部失败：报错带上各层原始错误，便于定位 ---
+    raise SaveCorruptedError(
+        f"存档读取失败（三层回退均未成功）。\n"
+        f"plyvel 主路径：{type(primary_error).__name__}: {primary_error}\n"
+        f"纯 Python 读取器：{type(pure_error).__name__}: {pure_error}\n"
+        f"repair 副本：{rerr}\n\n"
+        f"可能原因：游戏版本更新导致 LevelDB 格式不兼容。"
+        f"可尝试通过『备份管理』还原最近备份，或把此完整错误上报。"
+    ) from primary_error
 
     # 非 Corruption 错误（KeyError / IOError 等）直接抛
     if primary_error is None:
         primary_error = KeyError("未知读取失败")
     raise primary_error
+
+
+# --------------------------------------------------------------------------- #
+# Unwrapped ↔ Wrapped 转换（编辑器用 unwrapped 显示，保存时叠回 wrapped 保类型）
+# --------------------------------------------------------------------------- #
+# 背景：wrapped JSON（含 start/contents/end 类型标签）体积是 unwrapped 的 ~5.6
+# 倍（本存档 31.7MB vs 5.7MB）。直接把 31.7MB 塞进 Kivy TextInput 会卡死。
+# 改为：编辑器显示 unwrapped（紧凑、人类可读），保存时把用户编辑叠回原 wrapped
+# 结构（保留 start/end 类型标签），保证 StencylEncoder 能正确编码。
+
+
+def wrapped_to_unwrapped(node) -> "Any":
+    """从 wrapped 节点递归计算 unwrapped 值（人类可读的纯数据树）。
+
+    叶子返回 ``contents`` 原值；dict 容器返回 ``{key: unwrapped_child}``；
+    list 容器返回 ``[unwrapped_child, ...]``。
+    """
+    if not isinstance(node, dict) or "start" not in node:
+        return node
+    contents = node.get("contents")
+    if isinstance(contents, dict):
+        return {str(k): wrapped_to_unwrapped(v) for k, v in contents.items()}
+    if isinstance(contents, list):
+        return [wrapped_to_unwrapped(v) for v in contents]
+    return contents
+
+
+def overlay_unwrapped(wrapped_node, unwrapped_val):
+    """把用户编辑的 unwrapped 值叠回 wrapped 结构，保留 start/end 类型标签。
+
+    递归遍历 wrapped 树：对叶子节点用 unwrapped_val 替换 contents；对容器节点
+    按键/索引递归。未在 unwrapped 中出现的键保留原值（用户未改动）。
+
+    JSON 往返会把 int 键变成 str，因此按键的 ``str()`` 匹配。
+    """
+    if not isinstance(wrapped_node, dict) or "start" not in wrapped_node:
+        return wrapped_node
+    result = dict(wrapped_node)  # 浅拷贝，保留 start/end
+    w_contents = wrapped_node.get("contents")
+    if isinstance(w_contents, dict):
+        new_contents = {}
+        for k, child in w_contents.items():
+            # JSON 往返后键为 str；用 str(k) 匹配
+            match_key = str(k) if not isinstance(k, str) else k
+            if isinstance(unwrapped_val, dict) and match_key in unwrapped_val:
+                new_contents[k] = overlay_unwrapped(child, unwrapped_val[match_key])
+            elif isinstance(unwrapped_val, dict) and k in unwrapped_val:
+                new_contents[k] = overlay_unwrapped(child, unwrapped_val[k])
+            else:
+                new_contents[k] = child  # 保留原值
+        result["contents"] = new_contents
+    elif isinstance(w_contents, list):
+        new_list = []
+        for i, child in enumerate(w_contents):
+            if isinstance(unwrapped_val, list) and i < len(unwrapped_val):
+                new_list.append(overlay_unwrapped(child, unwrapped_val[i]))
+            else:
+                new_list.append(child)
+        result["contents"] = new_list
+    else:
+        # 叶子：用用户编辑的值替换 contents（start/end 类型标签保留）
+        result["contents"] = unwrapped_val
+    return result
 
 
 def validate_wrapped_json(data) -> Tuple[bool, str]:

@@ -202,7 +202,9 @@ class PathScreen(MyScreen):
 
     def set_path(self, directory, filename):
         try:
-            self.path_input.text = str(Path(directory, filename[0]))
+            # 统一分隔符为 /，与 default_path 一致，避免 \ 与 / 混用导致显示混乱
+            norm = str(Path(directory, filename[0])).replace("\\", "/")
+            self.path_input.text = norm
         except IndexError:
             pass  # no file selected, so just treat it like canceling
         self.dismiss_popup()
@@ -210,6 +212,11 @@ class PathScreen(MyScreen):
     def on_path_text(self, text=None):
         if text is None:
             text = self.path_input.text
+
+        # 统一 Windows 反斜杠为正斜杠，Path 在 Windows 上两种都认，
+        # 但规范化后显示一致、比较可靠。
+        if text:
+            text = text.replace("\\", "/")
 
         if text and Path(text).exists() and Path(text).name == "LegendsOfIdleon.exe":
             # Valid path -> allow next

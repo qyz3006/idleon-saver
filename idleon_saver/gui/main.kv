@@ -1,5 +1,6 @@
 #:kivy 2.0.0
 #:import startfile os.startfile
+#:import dirname os.path.dirname
 #:import user_dir idleon_saver.utility.user_dir
 #:import Formats idleon_saver.scripts.export.Formats
 #:import hex kivy.utils.get_color_from_hex
@@ -159,6 +160,14 @@
         Widget:
 
         Button:
+            text: '↑ 上级'
+            on_release: filechooser.path = dirname(filechooser.path)
+
+        Widget:
+            size_hint_x: None
+            width: 5
+
+        Button:
             text: 'Icon View'
             on_press: filechooser.view_mode = 'icon'
 
@@ -229,10 +238,10 @@
         TextInput:
             id: json_input
             text: root.raw_text
-            # 不在此设 font_name：Kivy 的 default_font 已在 gui/main.py 启动期
-            # 被 setup_cjk_font() 覆盖为系统 CJK 字体（微软雅黑/黑体），
-            # 所有控件默认即支持中文，无需逐控件指定。刻意不写绝对字体名
-            # 还可避免冻结 exe 中 resolve_font_name 找不到字体而 OSError。
+            # 显示 unwrapped JSON（~5.7MB）而非 wrapped（~31.7MB），避免卡死。
+            # 保存时 gui/editor.py 的 on_save 会把编辑后的 unwrapped 叠回原
+            # wrapped 结构（保留 start/end 类型标签）再编码。default_font 已
+            # 被 setup_cjk_font() 覆盖为 CJK 字体，中文可正常渲染。
             font_size: 13
             multiline: True
             size_hint_y: 1

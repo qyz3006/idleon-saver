@@ -35,7 +35,9 @@ from idleon_saver.editor import (
     encode_to_stencyl,
     is_game_running,
     load_wrapped_json,
+    overlay_unwrapped,
     validate_wrapped_json,
+    wrapped_to_unwrapped,
     write_leveldb,
 )
 from idleon_saver.utility import locate_idleon_install, locate_leveldb, user_dir
@@ -193,7 +195,13 @@ class EditorScreen(Screen):
         return False
 
     def load_save(self):
-        """加载 wrapped JSON 到编辑区。"""
+        """加载存档到编辑区。
+
+        显示 unwrapped JSON（紧凑、人类可读，~5.7MB）而非 wrapped JSON
+        （~31.7MB，含 start/contents/end 类型标签），避免 TextInput 卡死。
+        原始 wrapped 结构保留在 ``self._original_wrapped``，保存时把用户编辑
+        叠回 wrapped 以保留类型标签供 StencylEncoder 编码。
+        """
         if not self._ensure_located():
             return
         try:
@@ -202,26 +210,25 @@ class EditorScreen(Screen):
                 Path(self.idleon_path) if self.idleon_path else None,
             )
         except SaveCorruptedError as exc:
-            # 存档 LevelDB 损坏（如游戏异常退出导致块损坏）：给出友好提示，
-            # 引导用户用『备份管理』还原或关闭游戏后重试，而不是抛裸 traceback。
             self.popup_error(
                 text=(
-                    "存档损坏：LevelDB 存在损坏块，无法读取。\n\n"
-                    "建议：通过『备份管理』还原最近备份，"
-                    "或关闭游戏后重新打开本工具。"
+                    "存档读取失败。\n\n"
+                    f"{exc}\n\n"
+                    "可尝试通过『备份管理』还原最近备份。"
                 )
             )
             self.status = "加载失败"
             return
         except Exception as exc:
-            # 绝不用 exc_info= 或把异常对象作为日志参数：kivy 的 Logger.format
-            # 会对 record 做 deepcopy，traceback 不可 pickle 会崩溃。字符串化即可。
             logger.error("加载存档失败：%s", exc)
             self.popup_error(text=f"加载存档失败：{exc}")
             self.status = "加载失败"
             return
-        # 写入 TextInput（kv 中 text: root.raw_text 会同步显示）
-        self.raw_text = json.dumps(wrapped, ensure_ascii=False, indent=2)
+        # 保留原始 wrapped 结构（含类型标签），保存时叠回
+        self._original_wrapped = wrapped
+        # 显示 unwrapped（紧凑版），TextInput 不会卡死
+        unwrapped = wrapped_to_unwrapped(wrapped)
+        self.raw_text = json.dumps(unwrapped, ensure_ascii=False, indent=2)
         self.status = "已加载"
 
     def on_manual_locate(self):
@@ -242,9 +249,12 @@ class EditorScreen(Screen):
         self._popup.open()
 
     def _set_ldb_dir(self, directory, _filename):
-        """FileChooser 选中回调：把选中的目录作为 ldb_path。"""
+        """FileChooser 选中回调：把选中的目录作为 ldb_path（规范化分隔符）。"""
         try:
-            self.ldb_path = Path(directory)
+            # 统一路径分隔符：Windows 用户可能拿到 \ 或 / 混合的路径，
+            # 规范化为 / 避免显示不一致和后续比较出错。
+            norm = str(directory).replace("\\", "/")
+            self.ldb_path = Path(norm)
             self.idleon_path = locate_idleon_install()
             self.dismiss_popup()
             self.load_save()
@@ -256,17 +266,27 @@ class EditorScreen(Screen):
     # 保存（校验 → 二次确认 → 写前备份 → 编码回写）
     # ------------------------------------------------------------------ #
     def on_save(self):
-        """保存：先校验 JSON 合法且结构完整，再二次确认。"""
+        """保存：解析用户编辑的 unwrapped JSON → 叠回原 wrapped 结构 → 校验 → 确认。"""
         try:
-            data = json.loads(self.ids.json_input.text)
+            unwrapped = json.loads(self.ids.json_input.text)
         except json.JSONDecodeError as exc:
             self.popup_error(text=f"JSON 语法错误：{exc}")
             return
-        ok, msg = validate_wrapped_json(data)
+        # 把用户编辑叠回原始 wrapped 结构（保留 start/end 类型标签）
+        original = getattr(self, "_original_wrapped", None)
+        if original is None:
+            self.popup_error(text="内部错误：原始 wrapped 数据丢失，请重新加载存档。")
+            return
+        try:
+            wrapped = overlay_unwrapped(original, unwrapped)
+        except Exception as exc:
+            self.popup_error(text=f"叠回 wrapped 结构失败：{exc}")
+            return
+        ok, msg = validate_wrapped_json(wrapped)
         if not ok:
             self.popup_error(text=f"校验未通过：{msg}")
             return
-        self._confirm_save(data)
+        self._confirm_save(wrapped)
 
     def _confirm_save(self, data):
         """二次确认弹窗；确认后写前备份 + 编码回写。"""
