@@ -32,7 +32,15 @@ def configure_logging(level: int = logging.INFO, to_stdout: bool = False) -> Non
 
     Args:
         level: Minimum log level to emit.
-        to_stdout: When ``True`` log to ``sys.stdout``; otherwise ``sys.stderr``.
+        to_stdout: When ``True`` log to ``sys.__stdout__``; otherwise
+            ``sys.__stderr__``. The "dunder" streams are used deliberately:
+            kivy replaces ``sys.stdout``/``sys.stderr`` with its own
+            :class:`~kivy.logger.LogFile` wrapper whose ``write`` calls
+            ``Logger.warning``. Routing our handler to that redirected stream
+            would re-enter kivy's logger and recurse infinitely at startup.
+            When no real console stream exists (e.g. a PyInstaller
+            ``--windowed`` build) the dunder stream is ``None``; we then skip
+            the console handler entirely since kivy still writes to its log file.
     """
     global _CONFIGURED
     root = logging.getLogger()
@@ -41,7 +49,15 @@ def configure_logging(level: int = logging.INFO, to_stdout: bool = False) -> Non
     if _CONFIGURED:
         return
 
-    stream = sys.stdout if to_stdout else sys.stderr
+    # Use the original (pre-kivy-redirection) streams so output is not fed
+    # back into kivy's redirected sys.stderr -> Logger.warning recursion.
+    stream = sys.__stdout__ if to_stdout else sys.__stderr__
+    if stream is None:
+        # No real console in this environment (e.g. frozen --windowed exe).
+        # kivy's file handler still captures the logs for the bug-report zip.
+        _CONFIGURED = True
+        return
+
     handler = logging.StreamHandler(stream)
     handler.setLevel(level)
     formatter = logging.Formatter("%(levelname)s:%(name)s:%(message)s")
