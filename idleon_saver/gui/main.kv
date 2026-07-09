@@ -229,11 +229,10 @@
         TextInput:
             id: json_input
             text: root.raw_text
-            # 不要在此写任何系统字体名（如 "Courier New"）。冻结 exe 中 kivy 的
-            # resolve_font_name 不会搜索系统字体目录，找不到文件会 OSError 并在
-            # 异常处理里再抛 KeyError 导致启动即崩溃。本控件刻意不设 font_name，
-            # 用 kivy 默认字体：用户机器默认字体即可渲染中文（避免方块/tofu），
-            # 且冻结态一定可解析。
+            # 不在此设 font_name：Kivy 的 default_font 已在 gui/main.py 启动期
+            # 被 setup_cjk_font() 覆盖为系统 CJK 字体（微软雅黑/黑体），
+            # 所有控件默认即支持中文，无需逐控件指定。刻意不写绝对字体名
+            # 还可避免冻结 exe 中 resolve_font_name 找不到字体而 OSError。
             font_size: 13
             multiline: True
             size_hint_y: 1

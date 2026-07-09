@@ -26,6 +26,17 @@ Config.set("graphics", "height", 300)
 Config.set("graphics", "minimum_height", 300)
 Config.set("input", "mouse", "mouse,disable_multitouch")
 
+# Register a CJK-capable font as Kivy's default BEFORE any widget import.
+# Kivy's bundled Roboto has no Chinese glyphs, so without this every Chinese
+# character (button labels, status text, warnings) renders as tofu (□□□).
+# Must run before `from kivy.app import App` / any kivy.uix import because
+# LabelBase caches the default font file at import time.
+# Uses absolute paths to existing system fonts, which bypasses the broken-in-
+# frozen-builds resolve_font_name/resource_find code path entirely.
+from idleon_saver.gui.fonts import setup_cjk_font
+
+setup_cjk_font(Config)
+
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.logger import Logger
