@@ -176,6 +176,87 @@
             text: "Done"
             on_release: root.done(filechooser.path, filechooser.selection)
 
+<ConfirmDialog>:
+    orientation: 'vertical'
+    padding: [10]
+    spacing: 5
+
+    Label:
+        text: root.text
+        color: 1, 1, 1, 1
+        text_size: self.size
+        halign: 'center'
+        valign: 'middle'
+
+    ButtonBox:
+        Button:
+            text: '取消'
+            on_release: root.on_cancel() if root.on_cancel else None
+
+        Widget:
+
+        Button:
+            text: '确认'
+            on_release: root.on_confirm() if root.on_confirm else None
+
+<EditorScreen>:
+    VBox:
+        Header:
+
+        # 游戏运行时警告横幅（未运行时高度为 0 且不透明，自动收起）
+        Label:
+            id: warn_banner
+            text: "⚠ 检测到游戏进程正在运行，写回可能写坏存档，请先关闭游戏！"
+            color: 1, 1, 1, 1
+            size_hint_y: None
+            height: 0 if not root.game_running else self.texture_size[1] + 10
+            opacity: 1.0 if root.game_running else 0.0
+            padding: [10, 5]
+            canvas.before:
+                Color:
+                    rgba: red900
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
+
+        Info:
+            id: status_label
+            text: root.status
+
+        Infobox:
+            text: "存档目录：" + (str(root.ldb_path) if root.ldb_path else "未定位")
+
+        TextInput:
+            id: json_input
+            text: root.raw_text
+            font_name: "Courier New"
+            font_size: 13
+            multiline: True
+            size_hint_y: 1
+            background_color: coolgray800
+            foreground_color: 1, 1, 1, 1
+
+        ButtonBox:
+            Button:
+                text: '保存'
+                on_release: root.on_save()
+
+            Button:
+                text: '备份'
+                on_release: root.backup_now()
+
+            Button:
+                text: '还原备份'
+                on_release: root.show_backups()
+
+            Button:
+                text: '手动选择'
+                on_release: root.on_manual_locate()
+
+            Button:
+                text: '取消'
+                on_release: root.on_cancel()
+
 <StartScreen>:
     VBox:
         Header:
@@ -191,6 +272,14 @@
                 text: 'Exit'
                 on_release:
                     app.stop()
+
+            Widget:
+
+            Button:
+                text: '编辑存档'
+                on_release:
+                    root.manager.transition.direction = 'left'
+                    root.manager.current = 'editor'
 
             Widget:
 
@@ -246,6 +335,14 @@
                 text: 'Show Files'
                 on_release:
                     startfile(user_dir(), "explore")
+
+            Widget:
+
+            Button:
+                text: '编辑存档'
+                on_release:
+                    root.manager.transition.direction = 'left'
+                    root.manager.current = 'editor'
 
             Widget:
 

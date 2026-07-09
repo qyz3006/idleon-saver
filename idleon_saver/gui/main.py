@@ -47,6 +47,9 @@ from idleon_saver.scripts import inject
 from idleon_saver.scripts.export import FirebaseExporter
 from idleon_saver.utility import Formats, friendly_name
 
+# 编辑器侧屏：在 MainWindow 构造时延迟导入，避免与 gui.editor 形成循环依赖
+from idleon_saver.gui.editor import EditorScreen
+
 
 class ButtonBox(BoxLayout):
     pass
@@ -275,6 +278,8 @@ class MainWindow(ScreenManager):
                 action=self.get_json,
             ),
             EndScreen(name="end", export=self.export),
+            # 存档编辑器作为独立侧屏接入，不插入 start→find_exe→end 线性链
+            EditorScreen(name="editor"),
         ]
 
         for screen in screens:

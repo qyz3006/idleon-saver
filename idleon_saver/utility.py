@@ -178,3 +178,34 @@ def wait_for(check: Callable[[], Any], timeout: float = 1.0) -> bool:
             return True
         time.sleep(0.1)
     return False
+
+
+def locate_leveldb() -> "Path | None":
+    """探测 Legends of Idleon 的 leveldb 存档目录。
+
+    路径：``%APPDATA%\\legends-of-idleon\\Local Storage\\leveldb``。
+    存在且为目录时返回该 Path，否则返回 None（由 UI 回退手动选择）。
+    """
+    appdata = os.environ.get("APPDATA", "")
+    if not appdata:
+        return None
+    candidate = Path(
+        appdata, "legends-of-idleon", "Local Storage", "leveldb"
+    )
+    if candidate.exists() and candidate.is_dir():
+        return candidate
+    return None
+
+
+def locate_idleon_install() -> "Path | None":
+    """定位 Steam 版 Legends of Idleon 安装目录（默认路径）。
+
+    默认 ``C:/Program Files (x86)/Steam/steamapps/common/Legends of Idleon``；
+    存在且为目录时返回该 Path，否则返回 None。
+    """
+    default = Path(
+        "C:/Program Files (x86)/Steam/steamapps/common/Legends of Idleon"
+    )
+    if default.exists() and default.is_dir():
+        return default
+    return None

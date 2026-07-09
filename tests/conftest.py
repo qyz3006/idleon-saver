@@ -3,9 +3,17 @@ from argparse import Namespace
 from pathlib import Path
 
 import pytest
-from idleon_saver.ldb import db_key, get_db
 from idleon_saver.scripts.export import Exporter, exporters
 from idleon_saver.utility import ROOT_DIR
+
+# plyvel 仅在目标环境（Python 3.9 + kivy + plyvel）安装。
+# 容错导入，使无 plyvel 的机器（如本机测试环境）仍能收集并运行不依赖
+# LevelDB 的用例；目标环境下行为完全不变。
+try:
+    from idleon_saver.ldb import db_key, get_db
+except ImportError:  # pragma: no cover - 仅无 plyvel 环境触发
+    db_key = None  # type: ignore[assignment]
+    get_db = None  # type: ignore[assignment]
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -22,6 +30,9 @@ def testargs(tmp_path_factory) -> Namespace:
 
 @pytest.fixture(autouse=True, scope="session")
 def testdb(testargs):
+    if get_db is None:
+        # 无 plyvel：不创建数据库；依赖 LevelDB 的用例会因自身需要而跳过/失败
+        return
     with get_db(testargs.ldb, create_if_missing=True) as db:
         db.put(db_key(testargs.idleon), b"_placeholder")
 
