@@ -1,3 +1,4 @@
+# 已升级 action 版本至 v4/v5（构建逻辑、PyInstaller ref、submodules、Windows 平台均保持不变）
 name: Build
 
 on:
@@ -16,7 +17,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: 3.9
 
@@ -26,7 +27,7 @@ jobs:
           version: 1.2.0b1
 
       - name: Cache PyInstaller
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         id: cache-pyinstaller
         env:
           cache-name: cache-pyinstaller
@@ -39,7 +40,7 @@ jobs:
 
       - name: Clone PyInstaller
         if: steps.cache-pyinstaller.outputs.cache-hit != 'true'
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           repository: pyinstaller/pyinstaller
           ref: v4.5.1
@@ -52,7 +53,7 @@ jobs:
           python ./waf all
 
       - name: Check out repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           path: main
           submodules: true
@@ -80,7 +81,7 @@ jobs:
           KIVY_GL_BACKEND: angle_sdl2
 
       - name: Archive exe
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: IdleonSaver.exe
           path: main/dist/IdleonSaver.exe

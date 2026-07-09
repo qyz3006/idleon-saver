@@ -1,3 +1,4 @@
+# 已升级 ghaction-virustotal 至 v4（release 触发、ubuntu 平台、files、update_release_body、VT_API_KEY 均保持不变）
 name: Virus Scan
 
 on:
@@ -9,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: VirusTotal Scan
-        uses: crazy-max/ghaction-virustotal@v2
+        uses: crazy-max/ghaction-virustotal@v4
         with:
           update_release_body: true
           vt_api_key: ${{ secrets.VT_API_KEY }}
