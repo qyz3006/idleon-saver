@@ -7,13 +7,21 @@
 - 读取：``get_db(ldb).get(key)`` → ``bytes.strip(b"\\x01")`` → ``StencylDecoder(text).result.wrapped``
 - 回写：``StencylEncoder(data).result`` → ``db.put(key, b"\\x01" + stencyl.encode("ascii"))``
 - 编辑器只编辑 wrapped JSON（含 start/contents/end），与 decode/encode 链路一致。
+
+LevelDB 读取健壮性（应对游戏版本更新导致的格式不兼容）：
+- 主路径读失败（plyvel 抛 CorruptionError）时，自动把存档目录复制到临时目录、
+  调用 ``plyvel.repair_db`` 重建 MANIFEST 后再从副本读取——**绝不触碰原存档**。
+- 无论修复成功与否，错误信息都包含 plyvel 的**原始**错误文本，便于定位是
+  "block checksum mismatch"（真损坏）还是 "bad version edit"（格式不兼容）。
 """
 
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -45,70 +53,164 @@ GAME_PROCESS = "LegendsOfIdleon.exe"
 
 
 class SaveCorruptedError(Exception):
-    """存档 LevelDB 存在损坏块，无法读取。"""
+    """存档 LevelDB 读取失败（损坏块或格式不兼容）。
+
+    错误信息始终包含 plyvel 的原始错误文本，便于区分真损坏与版本不兼容。
+    """
 
 
-def _resolve_key(db, idleon: Optional[Path]) -> bytes:
-    """根据安装目录构造存档 key；未提供时扫描 mySave 后缀 key，保证往返一致。
+# 复制 DB 副本时跳过 LOCK 文件：游戏运行中 LOCK 被占用无法复制，且 repair
+# 会重建它，复制它毫无意义。
+_REPAIR_COPY_IGNORE = shutil.ignore_patterns("LOCK")
+
+
+def _find_save_key(db, idleon: Optional[Path]) -> Tuple[Optional[bytes], Optional[Exception]]:
+    """定位存档 key。返回 (key, underlying_error)，不抛 SaveCorruptedError。
 
     Args:
         db: 已打开的 LevelDB 连接（支持 .get / .iterator）。
         idleon: 可选的游戏安装目录；为 None 时自动扫描。
 
     Returns:
-        存档 key（bytes）；若都找不到则抛 KeyError。
-        若迭代/读取撞到损坏块则抛 SaveCorruptedError（友好提示）。
+        ``(key, None)`` 成功；``(None, exc)`` 读取失败（exc 为 plyvel 原始错误，
+        通常是 CorruptionError）；``(None, KeyError(...))`` 扫描完未命中后缀。
     """
-    if idleon is not None:
-        key = db_key(idleon)  # type: ignore[operator]
-        # 读取可能因 LevelDB 损坏块抛 CorruptionError；此处容错，损坏则视为该
-        # key 无数据，退回扫描分支（扫描分支会捕获 CorruptionError 并给友好提示）。
+    if idleon is not None and db_key is not None:
         try:
-            raw = db.get(key)
-        except (CorruptionError, Exception):  # noqa: BLE001 - 任何读取异常都回退扫描
-            raw = None
-        if raw is not None:
-            return key
+            key = db_key(idleon)
+        except Exception as exc:  # db_key 构造失败（路径异常等）
+            logger.debug("db_key 构造失败，回退扫描：%s", exc)
+            key = None
+        if key is not None:
+            try:
+                raw = db.get(key)
+            except CorruptionError as exc:
+                return None, exc
+            except Exception as exc:
+                logger.debug("db.get(key) 非 Corruption 异常，回退扫描：%s", exc)
+            else:
+                if raw is not None:
+                    return key, None
     # 扫描分支：遍历所有 key，命中 mySave 后缀即返回。
-    # 迭代器撞到损坏块会抛 CorruptionError，必须捕获并转为「存档损坏」友好提示，
-    # 否则会冒泡成裸 traceback 导致 GUI 崩溃。
     try:
         for key, _ in db.iterator():
             if key.endswith(MY_SAVE_SUFFIX):
-                return key
+                return key, None
     except CorruptionError as exc:
-        raise SaveCorruptedError(
-            "存档文件损坏（可能是游戏异常退出导致 LevelDB 块损坏）。"
-            "请通过『备份管理』还原，或关闭游戏后重新打开本工具。"
-        ) from exc
-    raise KeyError(f"未找到后缀为 {MY_SAVE_SUFFIX!r} 的存档 key")
+        return None, exc
+    return None, KeyError(f"未找到后缀为 {MY_SAVE_SUFFIX!r} 的存档 key")
+
+
+def _decode_raw(raw: bytes) -> dict:
+    """去 0x01 前缀 → UTF-8 → Stencyl 解码为 wrapped dict。"""
+    text = str(raw.strip(b"\x01"), encoding="utf-8")
+    return StencylDecoder(text).result.wrapped
+
+
+def _try_repair_and_read(
+    ldb: Path, idleon: Optional[Path]
+) -> Tuple[Optional[dict], Optional[Exception]]:
+    """非破坏性修复回退：复制 DB 到临时目录 → repair_db → 读取。
+
+    原存档目录绝不被修改。repair_db 会重建 MANIFEST 并丢弃无法解析的块，
+    对"MANIFEST 损坏 / 格式版本不兼容"类问题 often 能恢复出 mySave 数据。
+
+    Returns:
+        ``(wrapped_dict, None)`` 修复后读取成功；``(None, exc)`` 失败（exc 为
+        原始错误，便于上层在最终报错里展示）。
+    """
+    try:
+        import plyvel as _plyvel  # 局部导入：无 plyvel 的测试环境直接跳过
+    except ImportError:
+        return None, RuntimeError("plyvel 未安装，无法执行修复")
+
+    tmp_root = Path(tempfile.mkdtemp(prefix="idleon_repair_"))
+    try:
+        copy_dir = tmp_root / "ldb"
+        # 跳过 LOCK：游戏运行时它被占用，且 repair 会重建。
+        shutil.copytree(ldb, copy_dir, ignore=_REPAIR_COPY_IGNORE)
+        try:
+            _plyvel.repair_db(str(copy_dir))
+        except Exception as exc:
+            logger.warning("repair_db 失败：%s", exc)
+            return None, exc
+        with get_db(copy_dir) as db:  # type: ignore[operator]
+            key, kerr = _find_save_key(db, idleon)
+            if key is None:
+                return None, kerr or KeyError("修复后仍未找到存档 key")
+            try:
+                raw = db.get(key)
+            except CorruptionError as exc:
+                return None, exc
+            if raw is None:
+                return None, KeyError("修复后存档 key 无数据")
+            return _decode_raw(raw), None
+    except Exception as exc:
+        return None, exc
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
 
 
 def load_wrapped_json(ldb: Path, idleon: Optional[Path] = None) -> dict:
     """读取 leveldb 存档 → 解码为 wrapped JSON（含 start/contents/end）。
+
+    读取健壮性：主路径撞到 CorruptionError 时，自动走非破坏性修复回退
+    （复制 → repair_db → 读副本）。原存档绝不被修改。
 
     Args:
         ldb: 存档目录（leveldb）。
         idleon: 可选的游戏安装目录，用于构造 db key；为 None 时自动扫描。
 
     Returns:
-        wrapped dict；若数据库无对应存档则抛 KeyError。
-        若 LevelDB 存在损坏块则抛 SaveCorruptedError（友好提示）。
+        wrapped dict。
+
+    Raises:
+        SaveCorruptedError: LevelDB 读取失败（含 plyvel 原始错误文本）。
+        KeyError: 存档 key 不存在。
     """
-    with get_db(ldb) as db:  # type: ignore[operator]
-        try:
-            key = _resolve_key(db, idleon)
-            raw = db.get(key)
-            if raw is None:
-                raise KeyError(f"存档 key 无数据：{key!s}")
-            # 去除 0x01 前缀后再送解码器
-            text = str(raw.strip(b"\x01"), encoding="utf-8")
-            return StencylDecoder(text).result.wrapped
-        except CorruptionError as exc:
-            raise SaveCorruptedError(
-                "存档文件损坏（可能是游戏异常退出导致 LevelDB 块损坏）。"
-                "请通过『备份管理』还原，或关闭游戏后重新打开本工具。"
-            ) from exc
+    primary_error: Optional[Exception] = None
+    try:
+        with get_db(ldb) as db:  # type: ignore[operator]
+            key, kerr = _find_save_key(db, idleon)
+            if key is None:
+                primary_error = kerr or KeyError("未找到存档 key")
+            else:
+                try:
+                    raw = db.get(key)
+                except CorruptionError as exc:
+                    primary_error = exc
+                else:
+                    if raw is None:
+                        primary_error = KeyError(f"存档 key 无数据：{key!s}")
+                    else:
+                        return _decode_raw(raw)
+    except CorruptionError as exc:
+        primary_error = exc
+
+    # 主路径因 CorruptionError 失败 → 非破坏性修复回退
+    if isinstance(primary_error, CorruptionError):
+        logger.warning(
+            "LevelDB 主路径读取失败 (%s: %s)；尝试修复副本回退",
+            type(primary_error).__name__,
+            primary_error,
+        )
+        repaired, rerr = _try_repair_and_read(ldb, idleon)
+        if repaired is not None:
+            logger.warning("修复副本回退成功，已从副本读取存档（原存档未修改）")
+            return repaired
+        # 修复也失败：报错里带上 plyvel 原始错误 + 修复错误，便于定位
+        raise SaveCorruptedError(
+            f"存档读取失败。\n"
+            f"原始错误：{type(primary_error).__name__}: {primary_error}\n"
+            f"已尝试修复副本读取，仍失败：{rerr}\n\n"
+            f"可能原因：游戏版本更新导致 LevelDB 格式与当前 plyvel 不兼容，"
+            f"或存档确实存在损坏块。可尝试通过『备份管理』还原最近备份。"
+        ) from primary_error
+
+    # 非 Corruption 错误（KeyError / IOError 等）直接抛
+    if primary_error is None:
+        primary_error = KeyError("未知读取失败")
+    raise primary_error
 
 
 def validate_wrapped_json(data) -> Tuple[bool, str]:
@@ -149,7 +251,10 @@ def write_leveldb(ldb: Path, stencyl: str, idleon: Optional[Path] = None) -> Non
     """
     encoded = stencyl.encode("ascii")
     with get_db(ldb) as db:  # type: ignore[operator]
-        key = _resolve_key(db, idleon)
+        key, kerr = _find_save_key(db, idleon)
+        if key is None:
+            # 写回时找不到 key 是致命的：不能凭空造一个 key 写入
+            raise kerr or KeyError("未找到存档 key，无法写回")
         try:
             db.put(key, b"\x01" + encoded)
         except Exception as exc:
