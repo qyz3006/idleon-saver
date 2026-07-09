@@ -39,6 +39,10 @@ from kivy.uix.screenmanager import Screen, ScreenManager
 # Make other modules use Kivy's logger.
 logging.Logger.manager.root = Logger
 
+# Ensure idleon-saver's own loggers route to a console handler too.
+configure_logging()
+
+from idleon_saver.log import configure_logging
 from idleon_saver.scripts import inject
 from idleon_saver.scripts.export import FirebaseExporter
 from idleon_saver.utility import Formats, friendly_name
@@ -310,7 +314,8 @@ class IdleonSaver(App):
         return MainWindow()
 
 
-if __name__ == "__main__":
+def main():
+    """Launch the Idleon Saver Kivy application."""
     import importlib.metadata
 
     # Add data dir to Kivy path in frozen bundle.
@@ -321,3 +326,7 @@ if __name__ == "__main__":
     Logger.info(f"Idleon Saver: version {importlib.metadata.version('idleon_saver')}")
 
     asyncio.run(IdleonSaver(kv_file="main.kv").async_run())
+
+
+if __name__ == "__main__":
+    main()

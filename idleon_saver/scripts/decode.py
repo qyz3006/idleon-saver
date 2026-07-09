@@ -1,5 +1,6 @@
 import json
 import logging
+import sys
 from argparse import Namespace
 from pathlib import Path
 
@@ -85,4 +86,7 @@ def main(args: Namespace):
 
 
 if __name__ == "__main__":
-    main(get_args(Args.WORKDIR, Args.INFILE))
+    # Delegate argument parsing to the unified CLI (single source of truth).
+    from idleon_saver.cli import main as cli_main
+
+    cli_main(["decode", *sys.argv[1:]])

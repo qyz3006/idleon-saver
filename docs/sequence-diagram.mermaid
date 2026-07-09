@@ -1,0 +1,37 @@
+sequenceDiagram
+    actor User
+    participant CLI as cli.main (idleon-saver)
+    participant Decode as scripts.decode
+    participant LDB as ldb
+    participant Sten as stencyl (decoder/encoder)
+    participant Exp as exporters
+    participant GUI as gui.main
+
+    Note over CLI: idleon-saver decode --source local --out decoded.json
+    CLI->>Decode: ldb2stencyl(ns)
+    Decode->>LDB: get_db(path), db_key(install)
+    LDB-->>Decode: mySave bytes
+    Decode->>Sten: StencylDecoder(data).result
+    Sten-->>Decode: StencylData
+    Decode->>Decode: write_json(unwrapped + wrapped)
+    Decode-->>CLI: decoded_plain.json / decoded_types.json
+
+    Note over CLI: idleon-saver encode --in decoded_types.json --out stencylsave.txt
+    CLI->>Decode: json2stencyl(ns)
+    Decode->>Sten: StencylEncoder(wrapped).result
+    Sten-->>Decode: encoded text
+    Decode->>LDB: stencyl2ldb(ns) to db.put(key, 0x01+val)
+    LDB-->>Decode: ok
+
+    Note over CLI: idleon-saver export --format companion --in decoded.json --out ./out
+    CLI->>Exp: Exporter(savedata).export(Formats.IC, outdir)
+    Exp->>Exp: build Account (Local/Firebase adapter)
+    Exp->>Exp: to_idleon_companion()
+    Exp-->>CLI: idleon_companion.json
+    Note over CLI: --format cogstruction to_cogstruction() cog_datas.csv + empties_datas.csv
+    Note over CLI: --format toolbox|efficiency Toolbox/EfficiencyExporter raw cloud-save JSON
+
+    Note over CLI: idleon-saver gui
+    CLI->>GUI: launch MainWindow (idleon_saver/gui/main.py)
+    GUI->>GUI: PathScreen to inject.main(exe) to FirebaseExporter(savedata).export()
+    GUI-->>User: export buttons to idleon_companion.json / cog CSVs

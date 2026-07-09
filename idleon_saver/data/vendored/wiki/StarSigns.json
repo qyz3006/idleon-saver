@@ -1,0 +1,756 @@
+{
+  "data": [
+    {
+      "name": "The Buff Guy",
+      "bonuses": [
+        "+1%_Total_Damage",
+        "+3_STR",
+        "_"
+      ]
+    },
+    {
+      "name": "Flexo Bendo",
+      "bonuses": [
+        "+2%_Movement_Speed",
+        "+3_AGI",
+        "_"
+      ]
+    },
+    {
+      "name": "The Book Worm",
+      "bonuses": [
+        "+1%_Class_EXP_Gain",
+        "+3_WIS",
+        "_"
+      ]
+    },
+    {
+      "name": "The Fuzzy Dice",
+      "bonuses": [
+        "+3_Talent_Points",
+        "+3_LUK",
+        "_"
+      ]
+    },
+    {
+      "name": "Dwarfo Beardus",
+      "bonuses": [
+        "+5%_Mining_Efficency",
+        "+20%_Multi-Ore_Chance",
+        "_"
+      ]
+    },
+    {
+      "name": "Hipster Logger",
+      "bonuses": [
+        "+5%_Chop_Efficiency",
+        "+20%_Multi-Log_Chance",
+        "_"
+      ]
+    },
+    {
+      "name": "Pie Seas",
+      "bonuses": [
+        "+5%_Fishin_Efficency",
+        "+20%_Multi-Fish_Odds",
+        "_"
+      ]
+    },
+    {
+      "name": "Shoe Fly",
+      "bonuses": [
+        "+5%_Catch_Efficiency",
+        "+20%_Multi-Bug_Chance",
+        "_"
+      ]
+    },
+    {
+      "name": "Blue Hedgehog",
+      "bonuses": [
+        "+4%_Movement_Speed",
+        "+0.0001%_Ring_Drop",
+        "_"
+      ]
+    },
+    {
+      "name": "Gum Drop",
+      "bonuses": [
+        "+15%_to_get_a_Time",
+        "Candy_when_claiming",
+        "8+_Hour_AFK_gains"
+      ]
+    },
+    {
+      "name": "Activelius",
+      "bonuses": [
+        "+15%_Class_EXP_when",
+        "fighting_actively",
+        "_"
+      ]
+    },
+    {
+      "name": "Pack Mule",
+      "bonuses": [
+        "+10%_Carry_Cap",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Ned Kelly",
+      "bonuses": [
+        "+6%_Defence",
+        "+2_Weapon_Power",
+        "_"
+      ]
+    },
+    {
+      "name": "Robinhood",
+      "bonuses": [
+        "+4%_Accuracy",
+        "+2%_Movement_Speed",
+        "+1_Cant_Trade_GME"
+      ]
+    },
+    {
+      "name": "Pirate Booty",
+      "bonuses": [
+        "+5%_Drop_Rate",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Muscle Man",
+      "bonuses": [
+        "+8_STR",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Fast Frog",
+      "bonuses": [
+        "+8_AGI",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Smart Stooge",
+      "bonuses": [
+        "+8_WIS",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Lucky Larry",
+      "bonuses": [
+        "+8_LUK",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Silly Snoozer",
+      "bonuses": [
+        "+2%_Fight_AFK_Gain",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "The Big Comatose",
+      "bonuses": [
+        "+2%_Skill_AFK_Gain",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Miniature Game",
+      "bonuses": [
+        "+30%_minigame_reward",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Mount Eaterest",
+      "bonuses": [
+        "+10%_chance_to_not",
+        "consume_food",
+        "+15%_All_Food_Effect"
+      ]
+    },
+    {
+      "name": "Bob Build Guy",
+      "bonuses": [
+        "+10%_Speed_in_Town",
+        "Skills",
+        "_"
+      ]
+    },
+    {
+      "name": "The Big Brain",
+      "bonuses": [
+        "+3%_Class_EXP_gain",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "The OG Skiller",
+      "bonuses": [
+        "+5%_Carry_Cap",
+        "+1%_Skill_AFK_gain",
+        "+2%_All_Skill_Prowess"
+      ]
+    },
+    {
+      "name": "Grim Reaper",
+      "bonuses": [
+        "+2%_Mob_Respawn_rate",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "The Fallen Titan",
+      "bonuses": [
+        "+3%_Boss_Damage",
+        "+4%_Crit_Chance",
+        "_"
+      ]
+    },
+    {
+      "name": "The Forsaken",
+      "bonuses": [
+        "-80%_Total_HP",
+        "-50%_Defence",
+        "+6%_Fight_AFK_Gain"
+      ]
+    },
+    {
+      "name": "Mr No Sleep",
+      "bonuses": [
+        "-6%_AFK_Gain",
+        "+30%_Carry_Cap",
+        "_"
+      ]
+    },
+    {
+      "name": "Sir Savvy",
+      "bonuses": [
+        "+3%_Skill_EXP_gain",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "All Rounder",
+      "bonuses": [
+        "+4_All_Stats",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Fatty Doodoo",
+      "bonuses": [
+        "-3%_Movement_Speed",
+        "+5%_Defence",
+        "+2%_Total_Damage"
+      ]
+    },
+    {
+      "name": "Chronus Cosmos",
+      "bonuses": [
+        "All_characters_can",
+        "now_align_with_2",
+        "Star_Signs_at_once"
+      ]
+    },
+    {
+      "name": "All Rounderi",
+      "bonuses": [
+        "+1%_All_Stat",
+        "i.e._STR/AGI/WIS/LUK",
+        "_"
+      ]
+    },
+    {
+      "name": "Centaurii",
+      "bonuses": [
+        "+10%_Accuracy",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Murmollio",
+      "bonuses": [
+        "+10%_Defence",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Strandissi",
+      "bonuses": [
+        "+3%_STR",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Agitagi",
+      "bonuses": [
+        "+3%_AGI",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Wispommo",
+      "bonuses": [
+        "+3%_WIS",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Lukiris",
+      "bonuses": [
+        "+3%_LUK",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Pokaminni",
+      "bonuses": [
+        "+15%_Card_Drop",
+        "(Outside_of_Dungeons)",
+        "_"
+      ]
+    },
+    {
+      "name": "Gor Bowzor",
+      "bonuses": [
+        "+12%_Boss_Damage",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Hydron Cosmos",
+      "bonuses": [
+        "All_characters_can",
+        "now_align_with_3",
+        "Star_Signs_at_once"
+      ]
+    },
+    {
+      "name": "Trapezoidburg",
+      "bonuses": [
+        "+20%_Critters/Trap",
+        "+10%_Trap_Efficiency",
+        "_"
+      ]
+    },
+    {
+      "name": "Sawsaw Salala",
+      "bonuses": [
+        "+25%_Construct_Exp",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Preys Bea",
+      "bonuses": [
+        "+15%_Worship_Efficiency",
+        "+15%_Worship_EXP",
+        "_"
+      ]
+    },
+    {
+      "name": "Cullingo",
+      "bonuses": [
+        "+15%_Total_Multikill",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Gum Drop Major",
+      "bonuses": [
+        "+40%_to_get_a_Time",
+        "Candy_when_claiming",
+        "40+_Hour_AFK_gains"
+      ]
+    },
+    {
+      "name": "Grim Reaper Major",
+      "bonuses": [
+        "+4%_Mob_Respawn_rate",
+        "(If_Lv&60)",
+        "_"
+      ]
+    },
+    {
+      "name": "Sir Savvy Major",
+      "bonuses": [
+        "+6%_Skill_EXP_gain",
+        "(If_Lv&70)",
+        "_"
+      ]
+    },
+    {
+      "name": "The Bulwark",
+      "bonuses": [
+        "+20%_Total_Damage",
+        "-12%_Movement_Speed",
+        "_"
+      ]
+    },
+    {
+      "name": "Big Brain Major",
+      "bonuses": [
+        "+6%_Class_EXP_gain",
+        "(If_Lv&80)",
+        "_"
+      ]
+    },
+    {
+      "name": "The Fiesty",
+      "bonuses": [
+        "+6%_Total_Damage",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "The Overachiever",
+      "bonuses": [
+        "+15%_Total_Damage",
+        "-7%_Fight_AFK_Gain",
+        "_"
+      ]
+    },
+    {
+      "name": "Comatose Major",
+      "bonuses": [
+        "+4%_Skill_AFK_Gain",
+        "(If_Lv&90)",
+        "_"
+      ]
+    },
+    {
+      "name": "S. Snoozer Major",
+      "bonuses": [
+        "+4%_Fight_AFK_Gain",
+        "(If_Lv&100)",
+        "_"
+      ]
+    },
+    {
+      "name": "Breedabilli",
+      "bonuses": [
+        "+35%_Breedable_Spd",
+        "+15%_Shiny_Pet_LV_spd",
+        "_"
+      ]
+    },
+    {
+      "name": "Gordonius Major",
+      "bonuses": [
+        "+15%_Cooking_SPD",
+        "(Multiplicative!)",
+        "_"
+      ]
+    },
+    {
+      "name": "Power Bowower",
+      "bonuses": [
+        "+30%_Pet_DMG_for",
+        "Breeding_Skill",
+        "_"
+      ]
+    },
+    {
+      "name": "Scienscion",
+      "bonuses": [
+        "+20%_Lab_EXP_Gain",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Artifosho",
+      "bonuses": [
+        "+15%_Artifact_Find",
+        "Chance",
+        "(Multiplicative)"
+      ]
+    },
+    {
+      "name": "Divividov",
+      "bonuses": [
+        "+30%_Divinity_EXP",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "C. Shanti Minor",
+      "bonuses": [
+        "+20%_Sailing_SPD",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Muscle Magnus",
+      "bonuses": [
+        "+50_STR",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Cropiovo Minor",
+      "bonuses": [
+        "+3%_Crop_Evo",
+        "chance_per_Farming_LV",
+        "_"
+      ]
+    },
+    {
+      "name": "Fabarmi",
+      "bonuses": [
+        "+20%_Farming_EXP",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "O.G. Signalais",
+      "bonuses": [
+        "+15%_OG_Chance",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Lightspeed Frog",
+      "bonuses": [
+        "+50_AGI",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Beanbie Major",
+      "bonuses": [
+        "+20%_Golden_Food",
+        "bonuses",
+        "_"
+      ]
+    },
+    {
+      "name": "Damarian Major",
+      "bonuses": [
+        "+25%_Total_Damage",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Lotto Larrinald",
+      "bonuses": [
+        "+50_LUK",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Intellostooge",
+      "bonuses": [
+        "+50_WIS",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "S. Tealio",
+      "bonuses": [
+        "+12%_Ninja_Twin",
+        "Stealth",
+        "_"
+      ]
+    },
+    {
+      "name": "Sneekee E. X.",
+      "bonuses": [
+        "+15%_Sneaking_EXP",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Jadaciussi",
+      "bonuses": [
+        "+10%_Jade_Gain",
+        "(Multiplicative!)",
+        "_"
+      ]
+    },
+    {
+      "name": "Druipi Major",
+      "bonuses": [
+        "+12%_Drop_Rarity",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Sumo Magno",
+      "bonuses": [
+        "+20%_Summoning_EXP",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Killian Maximus",
+      "bonuses": [
+        "+3%_Multikill_Per_Tier",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Seraph Cosmos",
+      "bonuses": [
+        "All_characters_now_get",
+        "1.10x_Star_Sign_bonuses",
+        "per_20_Summoning_LV"
+      ]
+    },
+    {
+      "name": "Glimmer of Beyond",
+      "bonuses": [
+        "This_star_sign_is",
+        "unreachable_for_now...",
+        "_"
+      ]
+    },
+    {
+      "name": "Fillerz48",
+      "bonuses": [
+        "_",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Fillerz49",
+      "bonuses": [
+        "_",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Fillerz50",
+      "bonuses": [
+        "_",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Fillerz51",
+      "bonuses": [
+        "_",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Fillerz52",
+      "bonuses": [
+        "_",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Fillerz53",
+      "bonuses": [
+        "_",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Fillerz54",
+      "bonuses": [
+        "_",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Fillerz55",
+      "bonuses": [
+        "_",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Fillerz56",
+      "bonuses": [
+        "_",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Fillerz57",
+      "bonuses": [
+        "_",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Fillerz58",
+      "bonuses": [
+        "_",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Fillerz59",
+      "bonuses": [
+        "_",
+        "_",
+        "_"
+      ]
+    },
+    {
+      "name": "Fillerz32",
+      "bonuses": [
+        "_",
+        "_",
+        "_"
+      ]
+    }
+  ]
+}

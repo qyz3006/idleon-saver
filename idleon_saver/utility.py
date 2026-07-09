@@ -7,6 +7,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Iterable, List
 
+from idleon_saver.log import configure_logging
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 BUGREPORT_LINK = "https://github.com/desophos/idleon-saver/issues/new?assignees=desophos&labels=bug&template=bug_report.md&title="
 
@@ -19,6 +21,8 @@ class Sources(Enum):
 class Formats(Enum):
     IC = "idleon_companion"
     COG = "cogstruction"
+    TOOLBOX = "toolbox"
+    EFFICIENCY = "efficiency"
 
 
 class Args(Enum):
@@ -122,12 +126,8 @@ arg_adders: dict[Args, Callable[[ArgumentParser], Any]] = {
 
 
 def get_args(*to_add: Args) -> Namespace:
-    # Redirect logs to stdout for CLI scripts.
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.INFO)
-    root.addHandler(handler)
+    # Route logging through the shared idleon-saver logger (console handler).
+    configure_logging()
 
     parser = ArgumentParser()
     for arg in to_add:

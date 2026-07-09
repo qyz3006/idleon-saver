@@ -1,5 +1,6 @@
 import json
 import logging
+import sys
 from argparse import Namespace
 
 import plyvel
@@ -59,4 +60,7 @@ def main(args: Namespace):
 
 
 if __name__ == "__main__":
-    main(get_args(Args.WORKDIR, Args.INFILE, Args.OUTFILE))
+    # Delegate argument parsing to the unified CLI (single source of truth).
+    from idleon_saver.cli import main as cli_main
+
+    cli_main(["encode", *sys.argv[1:]])

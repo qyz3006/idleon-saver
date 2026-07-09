@@ -16,6 +16,9 @@ kivy = { extras = ["base"], version = "^2.1" }
 chromecontroller = { git = "https://github.com/desophos/ChromeController.git" }
 pywin32 = { version = ">=300", markers = "sys_platform == 'win32'" }
 
+[tool.poetry.scripts]
+idleon-saver = "idleon_saver.cli:main"
+
 [tool.poetry.group.dev]
 optional = true
 
@@ -30,6 +33,14 @@ optional = true
 pytest = "^6.2.4"
 pytest-cov = "^2.12.1"
 telenium = { git = "https://github.com/desophos/telenium.git" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+markers = [
+    "gui: tests that launch the Kivy GUI (require a display / telenium)",
+]
 
 [build-system]
 requires = ["poetry-core>=1.2.0b1"]

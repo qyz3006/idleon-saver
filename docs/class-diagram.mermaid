@@ -1,0 +1,93 @@
+classDiagram
+    %% Frozen decode core
+    class StencylDecoder {
+        +result: StencylData
+    }
+    class StencylEncoder {
+        +result: str
+    }
+    class StencylData {
+        <<ABC>>
+        +unwrapped
+        +wrapped
+    }
+
+    %% Intermediate model (NEW)
+    class Account {
+        +source: Sources
+        +names: list~str~
+        +classes: list~int~
+        +stats: list~list~int~~
+        +statue_levels: list
+        +bags_used: list~list~str~~
+        +carrycaps: list~dict~
+        +starsigns_unlocked: dict
+        +starsigns_prog: list
+        +starsigns_equipped: list~str~
+        +cauldron: list~list~int~~
+        +cards: dict~str,int~
+        +stamp_levels: list~list~int~~
+        +statues_golden: list~int~
+        +cog_map: list~dict~
+        +cog_order: list~str~
+        +inv_storage_used: dict
+        +characters: list~Character~
+    }
+    class Character {
+        +name: str
+        +klass: int
+        +stats: list~int~
+        +starsign_equipped: str
+        +skill_levels: list~int~
+        +bags_used: list~str~
+        +carrycaps: dict
+        +statue_levels: list
+    }
+
+    %% Exporters
+    class Exporter {
+        <<ABC>>
+        +account: Account
+        +cauldron
+        +stats
+        +cog_order
+        +get_alchemy() dict
+        +get_starsigns() dict
+        +get_cards() dict
+        +get_stamps() iter
+        +get_statues() dict
+        +get_checklist() dict
+        +get_chars() list
+        +to_idleon_companion() dict
+        +to_cogstruction() dict
+    }
+    class LocalExporter {
+        +__init__(savedata: dict)
+    }
+    class FirebaseExporter {
+        +__init__(savedata: dict)
+    }
+    class ToolboxExporter {
+        +export(savedata, source, out)
+    }
+    class EfficiencyExporter {
+        +export(savedata, source, out)
+    }
+
+    %% Defensive helpers (module)
+    class converters {
+        <<module>>
+        +safe_get(obj, key, default) Any
+        +safe_json_parse(raw, default) Any
+        +safer_convert(value, typ, default, warn) Any
+    }
+
+    StencylDecoder ..> StencylData : produces
+    StencylEncoder ..> StencylData : consumes
+    LocalExporter ..> Account : builds
+    FirebaseExporter ..> Account : builds
+    Exporter o-- Account : consumes
+    Account o-- Character : contains
+    Exporter ..> converters : uses
+    LocalExporter --|> Exporter
+    FirebaseExporter --|> Exporter
