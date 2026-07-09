@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import sys
 
 import pytest
 from idleon_saver.utility import wait_for
-from telenium.context import TeleniumContext
+
+pytestmark = pytest.mark.gui
 
 path_input = "//PathScreen//TextInput"
 # telenium loads attribute selector values as json.
@@ -30,6 +33,7 @@ def next_blocked(app: TeleniumContext) -> bool:
 
 @pytest.fixture
 def app(tmp_path, datafiles) -> TeleniumContext:
+    from telenium.context import TeleniumContext
     with TeleniumContext(
         cmd_process=[sys.executable, "-m", "telenium.execute"],
         cmd_entrypoint=["idleon_saver/gui/main.py"],
