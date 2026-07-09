@@ -1,4 +1,8 @@
-# 已升级 action 版本至 v4/v5（构建逻辑、PyInstaller ref、submodules、Windows 平台均保持不变）
+# 用 pip 取代 Poetry：Poetry 1.2.0b1 是 2021 年的预发布版本，在新版 GitHub
+# runner 上通过 snok/install-poetry 安装会失败，导致整个 Build job 变红。
+# 同时固定 pyinstaller==4.5.1，因为 onefile.spec 仍使用 Analysis(..., cipher=...)
+# 参数，该参数在 PyInstaller 5.0 中被移除；4.5.1 提供 Windows 预编译 wheel，
+# 因此用 pip 直接安装即可，无需再从源码克隆并编译 bootloader（原流程既慢又脆弱）。
 name: Build
 
 on:
@@ -6,77 +10,32 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-
   workflow_dispatch:
 
 jobs:
   build:
-    defaults:
-      run:
-        shell: bash
     runs-on: windows-latest
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: 3.9
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-        with:
-          version: 1.2.0b1
-
-      - name: Cache PyInstaller
-        uses: actions/cache@v4
-        id: cache-pyinstaller
-        env:
-          cache-name: cache-pyinstaller
-        with:
-          path: pyinstaller
-          key: ${{ runner.os }}-build-${{ env.cache-name }}
-          restore-keys: |
-            ${{ runner.os }}-build-
-            ${{ runner.os }}-
-
-      - name: Clone PyInstaller
-        if: steps.cache-pyinstaller.outputs.cache-hit != 'true'
-        uses: actions/checkout@v4
-        with:
-          repository: pyinstaller/pyinstaller
-          ref: v4.5.1
-          path: pyinstaller
-
-      - name: Build bootloader
-        if: steps.cache-pyinstaller.outputs.cache-hit != 'true'
-        run: |
-          cd pyinstaller/bootloader
-          python ./waf all
-
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          path: main
-          submodules: true
-
-      - name: Install PyInstaller
-        run: |
-          cd main
-          poetry add $GITHUB_WORKSPACE/pyinstaller/ --no-interaction
-
       - name: Install dependencies
         run: |
-          cd main
-          poetry install --no-interaction --no-root
-
-      - name: Install package
-        run: |
-          cd main
-          poetry install --no-interaction
+          python -m pip install --upgrade pip
+          pip install pyinstaller==4.5.1
+          pip install wheels/plyvel-1.4.0-cp39-cp39-win_amd64.whl
+          pip install "kivy[base]==2.1.*"
+          pip install pywin32
+          pip install git+https://github.com/desophos/ChromeController.git
+          pip install . --no-deps
 
       - name: Build exe
-        run: |
-          cd main
-          poetry run pyinstaller -y onefile.spec
+        run: pyinstaller -y onefile.spec
         env:
           KIVY_GL_BACKEND: angle_sdl2
 
@@ -84,4 +43,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: IdleonSaver.exe
-          path: main/dist/IdleonSaver.exe
+          path: dist/IdleonSaver.exe

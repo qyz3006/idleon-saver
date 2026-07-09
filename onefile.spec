@@ -15,12 +15,12 @@ block_cipher = None
 
 
 a = Analysis(
-    ["idleon_saver\\gui\\main.py"],
-    pathex=["C:\\Users\\desophos\\Dropbox\\Code\\Python\\idleon\\Idleon Saver"],
+    ["idleon_saver/gui/main.py"],
+    pathex=["."],
     datas=[
         ("idleon_saver/scripts/*.js", "idleon_saver/scripts"),
-        ("idleon-data/maps/*.json", "idleon-data/maps"),
-        ("IdleonWikiBot/exported/repo/*.json", "IdleonWikiBot/exported/repo"),
+        ("idleon_saver/data/vendored/maps/*.json", "idleon_saver/data/vendored/maps"),
+        ("idleon_saver/data/vendored/wiki/*.json", "idleon_saver/data/vendored/wiki"),
     ],
     hookspath=hookspath(),
     hooksconfig={},
@@ -35,7 +35,7 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(
     pyz,
-    Tree("idleon_saver\\gui\\"),
+    Tree("idleon_saver/gui"),
     a.scripts,
     a.binaries,
     a.zipfiles,
