@@ -40,9 +40,9 @@ from kivy.uix.screenmanager import Screen, ScreenManager
 logging.Logger.manager.root = Logger
 
 # Ensure idleon-saver's own loggers route to a console handler too.
+from idleon_saver.log import configure_logging
 configure_logging()
 
-from idleon_saver.log import configure_logging
 from idleon_saver.scripts import inject
 from idleon_saver.scripts.export import FirebaseExporter
 from idleon_saver.utility import Formats, friendly_name
