@@ -386,6 +386,65 @@ class EditorScreen(Screen):
         """重新检测游戏进程并更新警告横幅状态。"""
         self.game_running = is_game_running()
 
+    # ------------------------------------------------------------------ #
+    # 导出 / 导入 JSON（绕开剪贴板，避免大文本复制损坏）
+    # ------------------------------------------------------------------ #
+    def on_export_json(self):
+        """把当前编辑区 JSON 写到文件，用户可用外部编辑器打开编辑。
+
+        绕开 Kivy TextInput 的剪贴板复制——1.2MB 文本通过剪贴板复制会
+        被截断/损坏，导致 JSON 语法错误。直接写文件保证完整。
+        """
+        out = user_dir() / "editor_export.json"
+        try:
+            out.write_text(self.raw_text, encoding="utf-8")
+        except OSError as exc:
+            self.popup_error(text=f"导出失败：{exc}")
+            return
+        self.status = f"已导出：{out.name}"
+        # 在文件管理器中打开导出目录，方便用户找到文件
+        try:
+            open_in_explorer(user_dir())
+        except Exception:
+            pass  # 打开目录失败不阻塞流程
+
+    def on_import_json(self):
+        """弹出文件选择器，选一个 JSON 文件导入到编辑区。
+
+        用户可在外部编辑器编辑导出的 JSON，改完后导入回来，再点「保存」。
+        """
+        from idleon_saver.gui.main import FileChooserDialog  # 运行期延迟导入
+
+        content = FileChooserDialog(
+            done=self._load_json_file,
+            cancel=self.dismiss_popup,
+            filters=["*.json"],
+        )
+        # skipcq: PYL-W0201
+        self._popup = Popup(
+            title="选择 JSON 文件",
+            content=content,
+            size_hint=(1, 1),
+        )
+        self._popup.open()
+
+    def _load_json_file(self, directory, filename):
+        """FileChooser 回调：读取选中的 JSON 文件到编辑区。"""
+        try:
+            if not filename:
+                return
+            fp = Path(directory, filename[0])
+            text = fp.read_text(encoding="utf-8")
+            # 校验 JSON 合法性
+            json.loads(text)
+            self.raw_text = text
+            self.status = f"已导入：{fp.name}"
+            self.dismiss_popup()
+        except json.JSONDecodeError as exc:
+            self.popup_error(text=f"JSON 语法错误：{exc}")
+        except Exception as exc:
+            self.popup_error(text=f"导入失败：{exc}")
+
     def on_cancel(self):
         """关闭编辑器，返回来源屏。"""
         self.manager.transition.direction = "right"

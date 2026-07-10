@@ -262,6 +262,14 @@
                 on_release: root.show_backups()
 
             Button:
+                text: '导出JSON'
+                on_release: root.on_export_json()
+
+            Button:
+                text: '导入JSON'
+                on_release: root.on_import_json()
+
+            Button:
                 text: '手动选择'
                 on_release: root.on_manual_locate()
 
