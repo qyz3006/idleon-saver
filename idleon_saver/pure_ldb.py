@@ -302,3 +302,136 @@ def read_value_by_key_suffix(ldb_dir: Path, key_suffix: bytes) -> Optional[bytes
             # corrupt/unparseable SSTable — skip to the next file
             continue
     return None
+
+
+# --------------------------------------------------------------------------- #
+# WAL write (pure Python, no plyvel)
+# --------------------------------------------------------------------------- #
+_CRC32C_POLY = 0x82F63B78
+_crc32c_table: Optional[list] = None
+
+
+def _make_crc32c_table() -> list:
+    """Build the CRC32C (Castagnoli) lookup table."""
+    table = []
+    for i in range(256):
+        crc = i
+        for _ in range(8):
+            crc = (crc >> 1) ^ _CRC32C_POLY if (crc & 1) else crc >> 1
+        table.append(crc)
+    return table
+
+
+def _crc32c(data: bytes) -> int:
+    """Compute CRC32C (Castagnoli) checksum — what LevelDB uses for WAL records."""
+    global _crc32c_table
+    if _crc32c_table is None:
+        _crc32c_table = _make_crc32c_table()
+    crc = 0xFFFFFFFF
+    for b in data:
+        crc = (crc >> 8) ^ _crc32c_table[(crc ^ b) & 0xFF]
+    return crc ^ 0xFFFFFFFF
+
+
+def _varint_encode(n: int) -> bytes:
+    """Encode an integer as a base-128 varint (for WriteBatch key/value lengths)."""
+    out = bytearray()
+    while True:
+        b = n & 0x7F
+        n >>= 7
+        if n:
+            out.append(b | 0x80)
+        else:
+            out.append(b)
+            return bytes(out)
+
+
+def _next_file_number(ldb_dir: Path) -> int:
+    """Find the next available file number for a new leveldb file."""
+    max_num = 0
+    for f in ldb_dir.iterdir():
+        num = _file_number(f.name)
+        if num > max_num:
+            max_num = num
+    return max_num + 1
+
+
+def write_value_wal(ldb_dir: Path, key: bytes, value: bytes) -> Path:
+    """Append a PUT record for ``key``/``value`` to the leveldb WAL.
+
+    This is the pure-Python write path — no plyvel required. It appends a
+    WriteBatch record (containing a single PUT) to the newest ``.log`` file,
+    handling 32 KB block fragmentation (first/middle/last records) and
+    CRC32C checksums.
+
+    On next DB open, LevelDB replays the WAL and applies the PUT. Since WAL
+    replay is last-write-wins, the appended value overrides any previous value
+    for the same key.
+
+    Args:
+        ldb_dir: Path to the leveldb directory.
+        key: The raw user key bytes (WAL stores user keys, not internal keys).
+        value: The raw value bytes (e.g. ``b"\\x01" + stencyl.encode("ascii")``).
+
+    Returns:
+        The path of the .log file that was written to.
+    """
+    ldb_dir = Path(ldb_dir)
+    log_files = sorted(
+        (f for f in ldb_dir.iterdir() if f.suffix == ".log"),
+        key=lambda f: _file_number(f.name),
+    )
+    if log_files:
+        log_path = log_files[-1]  # append to newest .log
+    else:
+        log_path = ldb_dir / f"{_next_file_number(ldb_dir):06d}.log"
+
+    # Build WriteBatch: [seq(8)][count(4)][op=1][klen varint][key][vlen varint][value]
+    batch = struct.pack("<Q", 0) + struct.pack("<I", 1)  # seq=0, count=1
+    batch += bytes([1])  # op = PUT
+    batch += _varint_encode(len(key)) + key
+    batch += _varint_encode(len(value)) + value
+
+    BLOCK = 32768
+    HEADER = 7  # crc(4) + length(2) + type(1)
+
+    current_size = log_path.stat().st_size if log_path.exists() else 0
+    pos = current_size
+    remaining = batch
+    first = True
+
+    with open(log_path, "ab") as f:
+        while remaining:
+            block_remaining = BLOCK - (pos % BLOCK)
+            if block_remaining < HEADER:
+                # Pad to next block boundary with zero bytes
+                f.write(b"\x00" * block_remaining)
+                pos += block_remaining
+                block_remaining = BLOCK
+
+            chunk_size = min(len(remaining), block_remaining - HEADER)
+            chunk = remaining[:chunk_size]
+            remaining = remaining[chunk_size:]
+
+            if first and not remaining:
+                rtype = 1  # full
+            elif first:
+                rtype = 2  # first
+            elif remaining:
+                rtype = 3  # middle
+            else:
+                rtype = 4  # last
+
+            # CRC covers type(1) + payload(chunk)
+            crc = _crc32c(bytes([rtype]) + chunk)
+            record = (
+                struct.pack("<I", crc)
+                + struct.pack("<H", len(chunk))
+                + bytes([rtype])
+                + chunk
+            )
+            f.write(record)
+            pos += HEADER + len(chunk)
+            first = False
+
+    return log_path
