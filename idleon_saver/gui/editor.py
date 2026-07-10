@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from pathlib import Path
 
+from kivy.clock import Clock
 from kivy.logger import Logger
 from kivy.properties import BooleanProperty, ObjectProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
@@ -154,6 +156,32 @@ class EditorScreen(Screen):
             # Logger.format 会对 record 做 deepcopy，traceback 不可 pickle 会崩溃。
             Logger.warning("Popup dismissed before being created: %s", exc)
 
+    # ------------------------------------------------------------------ #
+    # 后台线程执行阻塞 I/O（存档写回/还原/解析可能耗时数秒到数十秒，
+    # 必须离开 Kivy 主线程，否则整窗冻结、所有按钮点不动）
+    # ------------------------------------------------------------------ #
+    def _run_in_thread(self, worker, on_done):
+        """在后台线程跑阻塞 I/O，结束后切回主线程回调。
+
+        ``worker`` 在子线程执行，不得触碰任何 Kivy 控件/属性；
+        任何异常都会被捕获并作为 ``err`` 传给 ``on_done``（主线程）。
+        ``on_done(err)`` 在主线程执行，可安全更新 UI / 弹窗。
+        """
+        holder = {}
+
+        def _target():
+            err = None
+            try:
+                worker()
+            # 任何异常都透传给主线程上报，避免子线程静默吞掉
+            except Exception as exc:  # noqa: BLE001
+                err = exc
+            holder["err"] = err
+            # 切回主线程：Kivy 规定只能从 UI 线程碰控件
+            Clock.schedule_once(lambda dt: on_done(holder["err"]), 0)
+
+        threading.Thread(target=_target, daemon=True).start()
+
     def popup_error(self, text):
         from idleon_saver.gui.main import ErrorDialog  # 运行期延迟导入
 
@@ -195,7 +223,7 @@ class EditorScreen(Screen):
         return False
 
     def load_save(self):
-        """加载存档到编辑区。
+        """加载存档到编辑区（重活放后台线程，避免大存档卡死 UI）。
 
         显示 unwrapped JSON（紧凑、人类可读，~5.7MB）而非 wrapped JSON
         （~31.7MB，含 start/contents/end 类型标签），避免 TextInput 卡死。
@@ -204,32 +232,40 @@ class EditorScreen(Screen):
         """
         if not self._ensure_located():
             return
-        try:
-            wrapped = load_wrapped_json(
-                Path(self.ldb_path),
-                Path(self.idleon_path) if self.idleon_path else None,
+        self.status = "加载中"
+        ldb = Path(self.ldb_path)
+        idleon = Path(self.idleon_path) if self.idleon_path else None
+        result = {}
+
+        def worker():
+            # 解析整个 leveldb（大存档可达数十 MB）耗时，必须子线程
+            wrapped = load_wrapped_json(ldb, idleon)
+            result["wrapped"] = wrapped
+            result["text"] = json.dumps(
+                wrapped_to_unwrapped(wrapped), ensure_ascii=False, indent=2
             )
-        except SaveCorruptedError as exc:
-            self.popup_error(
-                text=(
-                    "存档读取失败。\n\n"
-                    f"{exc}\n\n"
-                    "可尝试通过『备份管理』还原最近备份。"
-                )
-            )
-            self.status = "加载失败"
-            return
-        except Exception as exc:
-            logger.error("加载存档失败：%s", exc)
-            self.popup_error(text=f"加载存档失败：{exc}")
-            self.status = "加载失败"
-            return
-        # 保留原始 wrapped 结构（含类型标签），保存时叠回
-        self._original_wrapped = wrapped
-        # 显示 unwrapped（紧凑版），TextInput 不会卡死
-        unwrapped = wrapped_to_unwrapped(wrapped)
-        self.raw_text = json.dumps(unwrapped, ensure_ascii=False, indent=2)
-        self.status = "已加载"
+
+        def on_done(err):
+            if err is not None:
+                if isinstance(err, SaveCorruptedError):
+                    self.popup_error(
+                        text=(
+                            "存档读取失败。\n\n"
+                            f"{exc}\n\n"
+                            "可尝试通过『备份管理』还原最近备份。"
+                        )
+                    )
+                else:
+                    logger.error("加载存档失败：%s", err)
+                    self.popup_error(text=f"加载存档失败：{err}")
+                self.status = "加载失败"
+                return
+            # 以下均为主线程：安全更新控件/属性
+            self._original_wrapped = result["wrapped"]
+            self.raw_text = result["text"]
+            self.status = "已加载"
+
+        self._run_in_thread(worker, on_done)
 
     def on_manual_locate(self):
         """弹出目录选择对话框，手动指定存档目录。"""
@@ -306,38 +342,54 @@ class EditorScreen(Screen):
         self._popup.open()
 
     def _do_save(self, data):
-        """写前强制备份，然后编码回写。"""
+        """写前强制备份，然后编码回写（重活在后台线程，避免 UI 冻结）。"""
         self.dismiss_popup()
         self.status = "保存中"
-        try:
-            backup_leveldb(Path(self.ldb_path), self._backups_root)
+        ldb = Path(self.ldb_path)
+        idleon = Path(self.idleon_path) if self.idleon_path else None
+        backups_root = self._backups_root
+
+        def worker():
+            # 以下均为阻塞 I/O（copytree 整目录 + 解析/写回整个 leveldb），
+            # 必须在子线程执行，否则点击「确认」后整窗卡死、所有按钮点不动。
+            backup_leveldb(ldb, backups_root)
             stencyl = encode_to_stencyl(data)
-            write_leveldb(
-                Path(self.ldb_path),
-                stencyl,
-                Path(self.idleon_path) if self.idleon_path else None,
-            )
-        except Exception as exc:
-            logger.error("保存失败：%s", exc)
-            self.popup_error(text=f"保存失败：{exc}")
-            self.status = "保存失败"
-            return
-        self.status = "已保存"
+            write_leveldb(ldb, stencyl, idleon)
+
+        def on_done(err):
+            if err is not None:
+                logger.error("保存失败：%s", err)
+                self.popup_error(text=f"保存失败：{err}")
+                self.status = "保存失败"
+            else:
+                # 编辑区本就显示用户改后的内容，无需再回读磁盘，省一次解析卡顿
+                self.status = "已保存"
+
+        self._run_in_thread(worker, on_done)
 
     # ------------------------------------------------------------------ #
     # 备份管理
     # ------------------------------------------------------------------ #
     def backup_now(self):
-        """立即创建一份备份（不修改存档）。"""
+        """立即创建一份备份（不修改存档；重活在后台线程）。"""
         if not self._ensure_located():
             return
-        try:
-            dest = backup_leveldb(Path(self.ldb_path), self._backups_root)
-        except Exception as exc:
-            logger.error("备份失败：%s", exc)
-            self.popup_error(text=f"备份失败：{exc}")
-            return
-        self.status = f"已备份：{dest.name}"
+        ldb = Path(self.ldb_path)
+        backups_root = self._backups_root
+        holder = {}
+
+        def worker():
+            # copytree 整目录，大存档会卡顿，放子线程
+            holder["name"] = backup_leveldb(ldb, backups_root).name
+
+        def on_done(err):
+            if err is not None:
+                logger.error("备份失败：%s", err)
+                self.popup_error(text=f"备份失败：{err}")
+                return
+            self.status = f"已备份：{holder['name']}"
+
+        self._run_in_thread(worker, on_done)
 
     def open_backups(self):
         """在资源管理器中打开备份目录。"""
@@ -365,21 +417,39 @@ class EditorScreen(Screen):
         self._popup.open()
 
     def restore_backup(self, backup_path):
-        """从选中备份还原（还原前会再备份当前态）。"""
+        """从选中备份还原（还原前会再备份当前态；重活放后台线程）。"""
         if self.ldb_path is None and not self._ensure_located():
             return
-        try:
-            restore_backup(
-                Path(backup_path), Path(self.ldb_path), self._backups_root
+        ldb = Path(self.ldb_path)
+        idleon = Path(self.idleon_path) if self.idleon_path else None
+        backups_root = self._backups_root
+        bp = Path(backup_path)
+        result = {}
+
+        def worker():
+            # 还原（copytree 整目录）已在子线程执行
+            restore_backup(bp, ldb, backups_root)
+            # 还原后回读磁盘也要解析整个 leveldb，同样耗时必须放子线程；
+            # 仅把解析结果（数据）带回主线程设置属性，绝不在这里碰 Kivy 控件。
+            wrapped = load_wrapped_json(ldb, idleon)
+            result["wrapped"] = wrapped
+            result["text"] = json.dumps(
+                wrapped_to_unwrapped(wrapped), ensure_ascii=False, indent=2
             )
-        except Exception as exc:
-            logger.error("还原失败：%s", exc)
-            self.popup_error(text=f"还原失败：{exc}")
-            return
-        # 关闭备份对话框，让编辑器立刻显示还原后的存档（否则对话框盖住、像是没反应）
-        self.dismiss_popup()
-        self.status = "已还原"
-        self.load_save()
+
+        def on_done(err):
+            if err is not None:
+                logger.error("还原失败：%s", err)
+                self.popup_error(text=f"还原失败：{err}")
+                return
+            # 以下均为主线程：安全更新控件/属性
+            self._original_wrapped = result["wrapped"]
+            self.raw_text = result["text"]
+            # 关闭备份对话框，让编辑器立刻显示还原后的存档
+            self.dismiss_popup()
+            self.status = "已还原"
+
+        self._run_in_thread(worker, on_done)
 
     # ------------------------------------------------------------------ #
     # 进程警告 / 关闭
