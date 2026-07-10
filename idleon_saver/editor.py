@@ -338,22 +338,85 @@ def encode_to_stencyl(data: dict) -> str:
 def write_leveldb(ldb: Path, stencyl: str, idleon: Optional[Path] = None) -> None:
     """把 Stencyl 字符串带 0x01 前缀写回 leveldb 存档。
 
+    写入健壮性（两层回退）：
+    1. plyvel 主路径：标准 LevelDB put（兼容老版本 DB）。
+    2. 纯 Python WAL 追加：直接往 .log 文件追加一条 WriteBatch PUT 记录，
+       不依赖 plyvel。解决 plyvel 打不开新版 Chromium LevelDB 无法写入的问题。
+
     Args:
         ldb: 存档目录（leveldb）。
         stencyl: 由 ``encode_to_stencyl`` 得到的 Stencyl 字符串。
         idleon: 可选的安装目录，用于定位 key。
     """
     encoded = stencyl.encode("ascii")
-    with get_db(ldb) as db:  # type: ignore[operator]
-        key, kerr = _find_save_key(db, idleon)
-        if key is None:
-            # 写回时找不到 key 是致命的：不能凭空造一个 key 写入
-            raise kerr or KeyError("未找到存档 key，无法写回")
+    value = b"\x01" + encoded
+
+    # --- 第 1 层：plyvel 主路径 ---
+    if get_db is not None:
         try:
-            db.put(key, b"\x01" + encoded)
+            with get_db(ldb) as db:  # type: ignore[operator]
+                key, kerr = _find_save_key(db, idleon)
+                if key is None:
+                    raise kerr or KeyError("未找到存档 key，无法写回")
+                try:
+                    db.put(key, value)
+                except Exception as exc:
+                    raise IOError(f"plyvel 写回失败：{exc}") from exc
+            logger.info("已通过 plyvel 写回存档到 %s", ldb)
+            return
+        except CorruptionError:
+            logger.warning("plyvel 写入失败 (CorruptionError)，尝试纯 Python WAL 写入")
         except Exception as exc:
-            raise IOError(f"写回数据库失败：{exc}") from exc
-    logger.info(f"已写回存档 key={key!s} 到 {ldb}")
+            logger.warning("plyvel 写入失败 (%s)，尝试纯 Python WAL 写入", exc)
+
+    # --- 第 2 层：纯 Python WAL 追加 ---
+    # 先用纯读取器找到 mySave 的 raw user key（WAL 用 user key，非 internal key）
+    raw = _pure_read_value(ldb, MY_SAVE_SUFFIX)
+    if raw is None:
+        raise KeyError("未找到存档 key，无法写回")
+    # 需要找到完整的 user key。扫描 .ldb/.log 获取含 mySave 后缀的完整 key。
+    save_key = _find_raw_key(ldb, MY_SAVE_SUFFIX)
+    if save_key is None:
+        raise KeyError("无法定位 mySave 的完整 key")
+    try:
+        from idleon_saver.pure_ldb import write_value_wal
+        log_path = write_value_wal(ldb, save_key, value)
+        logger.info("已通过纯 Python WAL 写入存档到 %s", log_path)
+    except Exception as exc:
+        raise IOError(f"纯 Python WAL 写入也失败：{exc}") from exc
+
+
+def _find_raw_key(ldb: Path, key_suffix: bytes) -> Optional[bytes]:
+    """扫描 leveldb 目录，返回含指定后缀的完整 raw user key。
+
+    用于 WAL 写入：WAL 存的是 user key（不含 internal key 的 8 字节 seq/type 尾部）。
+    先扫 .log（WAL 里的 key 就是 user key），再扫 .ldb（需剥离 internal key 尾部）。
+    """
+    from idleon_saver.pure_ldb import _iter_wal, _iter_sstable, _file_number
+    import os
+
+    # .log files — WAL keys are raw user keys
+    for fn in sorted(os.listdir(ldb), key=lambda f: _file_number(f) if f.endswith(('.log', '.ldb')) else -1):
+        fp = ldb / fn
+        if fn.endswith(".log"):
+            try:
+                for k, v in _iter_wal(fp.read_bytes()):
+                    if k.endswith(key_suffix):
+                        return k
+            except Exception:
+                continue
+    # .ldb files — internal keys (strip 8-byte footer)
+    for fn in sorted(os.listdir(ldb), key=lambda f: _file_number(f) if f.endswith(('.log', '.ldb')) else -1, reverse=True):
+        fp = ldb / fn
+        if fn.endswith(".ldb"):
+            try:
+                for ik, v in _iter_sstable(fp.read_bytes()):
+                    uk = ik[:-8] if len(ik) >= 8 else ik
+                    if uk.endswith(key_suffix):
+                        return uk
+            except Exception:
+                continue
+    return None
 
 
 def is_game_running() -> bool:

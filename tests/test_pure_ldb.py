@@ -192,3 +192,41 @@ class TestSSTableReader:
 
     def test_missing_dir_returns_none(self, tmp_path):
         assert pure_ldb.read_value_by_key_suffix(tmp_path / "nope", b"mySave") is None
+
+
+# --------------------------------------------------------------------------- #
+# WAL write (pure Python)
+# --------------------------------------------------------------------------- #
+class TestWALWrite:
+    def test_write_then_read(self, tmp_path):
+        """Write a value via pure-Python WAL, read it back — should match."""
+        user_key = b"_file://\x00\x01/E:/game/index.html:mySave"
+        value = b"\x01oy14:dummyMonsterIDi42g"
+        log_path = pure_ldb.write_value_wal(tmp_path, user_key, value)
+        assert log_path.exists()
+        result = pure_ldb.read_value_by_key_suffix(tmp_path, b"index.html:mySave")
+        assert result == value
+
+    def test_write_overrides_ldb(self, tmp_path):
+        """WAL write overrides existing .ldb value (last-write-wins)."""
+        user_key = b"_file://\x00\x01/E:/game/index.html:mySave"
+        (tmp_path / "000001.ldb").write_bytes(
+            _build_sstable([(_internal_key(user_key), b"\x01OLD_FROM_LDB")])
+        )
+        pure_ldb.write_value_wal(tmp_path, user_key, b"\x01NEW_FROM_WAL")
+        assert pure_ldb.read_value_by_key_suffix(tmp_path, b"index.html:mySave") == b"\x01NEW_FROM_WAL"
+
+    def test_write_large_value_fragments(self, tmp_path):
+        """Large values (>32KB) are fragmented across multiple WAL records."""
+        user_key = b"_file://\x00\x01/E:/game/index.html:mySave"
+        # 100KB value — must span multiple 32KB blocks
+        value = b"\x01" + b"x" * 100000
+        pure_ldb.write_value_wal(tmp_path, user_key, value)
+        result = pure_ldb.read_value_by_key_suffix(tmp_path, b"index.html:mySave")
+        assert result == value
+        assert len(result) == 100001
+
+    def test_crc32c_correctness(self):
+        """CRC32C must match LevelDB's expected values."""
+        # Known CRC32C test vector: CRC32C of "123456789" = 0xE3069283
+        assert pure_ldb._crc32c(b"123456789") == 0xE3069283
