@@ -269,6 +269,61 @@ def wrapped_to_unwrapped(node) -> "Any":
     return contents
 
 
+def _coerce_for_stencyl_type(start, value):
+    """按目标 Stencyl 叶子类型标签，对 overlay 进来的用户值做安全转换。
+
+    背景：游戏的存档里大量字段以字符串/整数形式存储（如 ``y3:467``、
+    ``i7854062``），但 unwrapped JSON 导出时丢掉了“像数字的字符串 / 整数”
+    这类类型信息——字符串字段被导出成 JSON 数字 467，浮点字段被导出成
+    整数位置上的 float。导入保存时若把错误类型原样叠回对应类型叶子，编码即崩
+    或产出解码器无法解析的坏结构。这里按目标叶子的类型标签强制转换，既保证能
+    编码，也还原游戏真实的存储形态。
+
+    - ``y`` / ``R``（字符串字面量）：转 ``str``。否则 StencylEncoder 在
+      ``_encode_string`` 里对 int/float/bool 调 ``urllib.parse.quote`` 会抛
+      ``quote_from_bytes() expected bytes``（用户看到的“结构校验失败”）。
+    - ``i``（整数字面量）：转 ``int``。float 必须转 int，否则 ``f"i{3.14}"``
+      产出 ``i3.14``，解码器读整数在 ``.`` 处停、后续 ``.`` 成非法 token。
+    - ``d``（浮点字面量）：转 ``float``。bool/int/数值串都转 float，保证
+      ``f"d{x}"`` 可被解码器正常读回。
+    - 常量（t/f/n/z/k/m/p）：编码时直接用 start 字符、忽略 contents，无需转换。
+    """
+    if start in ("y", "R"):
+        return str(value)
+    if start == "i":
+        # 目标为 int 字面量：float 必须转 int，否则 f"i{3.14}" 产出坏结构。
+        # "Null"/None（unwrapped 导出对“空槽”的表示）映射为 0（游戏空槽的整型值）。
+        if value is None or (isinstance(value, str) and value.strip().lower() == "null"):
+            return 0
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(float(value))
+            except ValueError:
+                return value  # 非数字串：保留，交给编码层暴露明确错误
+        return value
+    if start == "d":
+        # 目标为 float 字面量：bool/int/数值串都转 float。
+        if value is None or (isinstance(value, str) and value.strip().lower() == "null"):
+            return 0.0
+        if isinstance(value, bool):
+            return float(value)
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return value
+        return value
+    return value
+
+
 def overlay_unwrapped(wrapped_node, unwrapped_val):
     """把用户编辑的 unwrapped 值叠回 wrapped 结构，保留 start/end 类型标签。
 
@@ -302,8 +357,9 @@ def overlay_unwrapped(wrapped_node, unwrapped_val):
                 new_list.append(child)
         result["contents"] = new_list
     else:
-        # 叶子：用用户编辑的值替换 contents（start/end 类型标签保留）
-        result["contents"] = unwrapped_val
+        # 叶子：用用户编辑的值替换 contents（start/end 类型标签保留），
+        # 并按目标类型标签做安全转换（字符串叶子 y/R 强制转 str，避免编码崩溃）
+        result["contents"] = _coerce_for_stencyl_type(wrapped_node.get("start"), unwrapped_val)
     return result
 
 
