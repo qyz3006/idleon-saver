@@ -174,3 +174,43 @@ def test_validate_bad_structure(fake_leveldb, tmp_path):
     # 容器标记 a 但 contents 不是 list/dict → 编码失败
     ok, msg = editor.validate_wrapped_json({"start": "a", "contents": 5})
     assert ok is False
+
+
+def test_overlay_coerces_types_for_encode():
+    """回归：overlay 必须按目标叶子类型标签转换用户值，否则 StencylEncoder
+    会对 int/float/bool 调 quote() 抛 'quote_from_bytes() expected bytes'，
+    或对 float 塞进 i 叶子生成 i3.14 这类解码器无法解析的坏结构。
+
+    这正是“导入后保存失败 / 结构校验失败，无法编码为 Stencyl”的根因：
+    游戏的存档大量字段以字符串/整数形式存储（y3:467 / i135），但 unwrapped
+    JSON 导出丢掉了类型信息——字符串字段变 JSON 数字、空槽变 "Null" 字符串。
+    导入保存时若不转换，编码即崩。
+    """
+    from idleon_saver.stencyl.decoder import StencylDecoder
+
+    template = {
+        "start": "o",
+        "end": "g",
+        "contents": {
+            "name": {"start": "y", "contents": "Alice"},   # 字符串叶子
+            "atk": {"start": "i", "contents": 10},         # 整数叶子
+            "hp": {"start": "d", "contents": "3.5"},       # 浮点叶子
+            "slot": {"start": "i", "contents": 135},       # 整数叶子（真实值）
+        },
+    }
+    # 用户编辑的 unwrapped：类型与模板不一致（正是真实导出 JSON 的形态）
+    unwrapped = {
+        "name": 467,       # int → 应转字符串 "467"（y 叶子）
+        "atk": 20,         # int 一致
+        "hp": 2,           # int → 应转 float 2.0（d 叶子）
+        "slot": "Null",    # "Null" → 应转 int 0（i 叶子，空槽）
+    }
+    result = editor.overlay_unwrapped(template, unwrapped)
+    # 不应抛错
+    enc = editor.encode_to_stencyl(result)
+    # 关键值检查
+    assert result["contents"]["name"]["contents"] == "467"
+    assert result["contents"]["hp"]["contents"] == 2.0
+    assert result["contents"]["slot"]["contents"] == 0
+    # 编码结果能回解码（证明结构合法）
+    StencylDecoder(enc).result

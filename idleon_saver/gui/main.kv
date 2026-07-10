@@ -1,5 +1,6 @@
 #:kivy 2.0.0
 #:import startfile os.startfile
+#:import dirname os.path.dirname
 #:import user_dir idleon_saver.utility.user_dir
 #:import Formats idleon_saver.scripts.export.Formats
 #:import hex kivy.utils.get_color_from_hex
@@ -147,6 +148,9 @@
     FileChooser:
         id: filechooser
         filters: root.filters
+        # 关键修复：默认隐藏文件/目录（如 Windows 的 AppData、以 . 开头的目录）
+        # 不可见，否则"手动选择"存档目录时无法导航进 AppData/Roaming/.../leveldb
+        show_hidden: True
         on_submit: root.done(filechooser.path, filechooser.selection)
         FileChooserIconLayout
         FileChooserListLayout
@@ -157,6 +161,14 @@
             on_release: root.cancel()
 
         Widget:
+
+        Button:
+            text: '↑ 上级'
+            on_release: filechooser.path = dirname(filechooser.path)
+
+        Widget:
+            size_hint_x: None
+            width: 5
 
         Button:
             text: 'Icon View'
@@ -229,7 +241,10 @@
         TextInput:
             id: json_input
             text: root.raw_text
-            font_name: "Courier New"
+            # 显示 unwrapped JSON（~5.7MB）而非 wrapped（~31.7MB），避免卡死。
+            # 保存时 gui/editor.py 的 on_save 会把编辑后的 unwrapped 叠回原
+            # wrapped 结构（保留 start/end 类型标签）再编码。default_font 已
+            # 被 setup_cjk_font() 覆盖为 CJK 字体，中文可正常渲染。
             font_size: 13
             multiline: True
             size_hint_y: 1
@@ -248,6 +263,14 @@
             Button:
                 text: '还原备份'
                 on_release: root.show_backups()
+
+            Button:
+                text: '导出JSON'
+                on_release: root.on_export_json()
+
+            Button:
+                text: '导入JSON'
+                on_release: root.on_import_json()
 
             Button:
                 text: '手动选择'

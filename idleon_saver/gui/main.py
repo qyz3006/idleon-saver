@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 import os
 import sys
 import threading
@@ -27,6 +26,17 @@ Config.set("graphics", "height", 300)
 Config.set("graphics", "minimum_height", 300)
 Config.set("input", "mouse", "mouse,disable_multitouch")
 
+# Register a CJK-capable font as Kivy's default BEFORE any widget import.
+# Kivy's bundled Roboto has no Chinese glyphs, so without this every Chinese
+# character (button labels, status text, warnings) renders as tofu (□□□).
+# Must run before `from kivy.app import App` / any kivy.uix import because
+# LabelBase caches the default font file at import time.
+# Uses absolute paths to existing system fonts, which bypasses the broken-in-
+# frozen-builds resolve_font_name/resource_find code path entirely.
+from idleon_saver.gui.fonts import setup_cjk_font
+
+setup_cjk_font(Config)
+
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.logger import Logger
@@ -36,9 +46,12 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen, ScreenManager
 
-# Make other modules use Kivy's logger.
-logging.Logger.manager.root = Logger
-
+# 不再劫持 Python 根 logger 去替换成 kivy 的 Logger。
+# 原因：kivy 的 Logger.format 会对日志记录做 copy.deepcopy，而异常 traceback
+# 对象不可 pickle，会触发 "cannot pickle 'traceback' object" 崩溃并污染日志。
+# 现在 idleon-saver 自己的日志经 configure_logging() 的 handler 写到
+# sys.__stderr__；kivy 自带日志走 kivy 自己的 Logger。二者互不干扰，
+# 既不会触发 kivy 的 deepcopy/递归，也不会再出现上面的崩溃。
 # Ensure idleon-saver's own loggers route to a console handler too.
 from idleon_saver.log import configure_logging
 configure_logging()
@@ -98,6 +111,40 @@ class FileChooserDialog(VBox):
     filters = ListProperty([])
     done = ObjectProperty(None)
     cancel = ObjectProperty(None)
+
+    def on_kv_post(self, _):
+        """加载完 KV 子控件后，在顶部插入盘符选择栏（仅 Windows）。
+
+        Windows 下 FileChooser 在驱动器根目录（如 C:/）无法再向上导航到
+        "此电脑"，用户无法切换到其他盘。这里在顶部加一行盘符按钮解决。
+        """
+        if not sys.platform.startswith("win"):
+            return
+        import string as _string
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.button import Button
+
+        bar = BoxLayout(
+            size_hint_y=None, height=32, spacing=2, padding=[2, 0]
+        )
+        for letter in _string.ascii_uppercase:
+            drive = f"{letter}:/"
+            if os.path.exists(drive):
+                btn = Button(
+                    text=f"{letter}:",
+                    size_hint_x=None,
+                    width=44,
+                    font_size=14,
+                )
+                btn.bind(on_release=lambda inst, d=drive: self._goto_drive(d))
+                bar.add_widget(btn)
+        # 插入到最前面（FileChooser 之前，垂直布局 index=0 = 顶部）
+        self.add_widget(bar, index=0)
+
+    def _goto_drive(self, drive):
+        fc = self.ids.get("filechooser")
+        if fc:
+            fc.path = drive
 
 
 class MyScreen(Screen):
@@ -189,7 +236,9 @@ class PathScreen(MyScreen):
 
     def set_path(self, directory, filename):
         try:
-            self.path_input.text = str(Path(directory, filename[0]))
+            # 统一分隔符为 /，与 default_path 一致，避免 \ 与 / 混用导致显示混乱
+            norm = str(Path(directory, filename[0])).replace("\\", "/")
+            self.path_input.text = norm
         except IndexError:
             pass  # no file selected, so just treat it like canceling
         self.dismiss_popup()
@@ -197,6 +246,11 @@ class PathScreen(MyScreen):
     def on_path_text(self, text=None):
         if text is None:
             text = self.path_input.text
+
+        # 统一 Windows 反斜杠为正斜杠，Path 在 Windows 上两种都认，
+        # 但规范化后显示一致、比较可靠。
+        if text:
+            text = text.replace("\\", "/")
 
         if text and Path(text).exists() and Path(text).name == "LegendsOfIdleon.exe":
             # Valid path -> allow next
