@@ -356,6 +356,16 @@ def _next_file_number(ldb_dir: Path) -> int:
     return max_num + 1
 
 
+# LevelDB 的 WAL 重放按"序列号最大者获胜"决定同一 key 的最终值，
+# 而不是文件顺序或写入先后。已提交到 SSTable 的旧存档序列号通常很大
+# （真实游戏存档累计写入远小于 1e9）。若这里用 0，新建记录的序列号会
+# 小于已提交数据，导致这笔写入在游戏（真正的 LevelDB）读档时被旧值覆盖、
+# 静默丢失——表现就是"转 JSON 改完回编 ldb，进游戏发现改动没生效"。
+# 因此用 1<<40 作为基准序列号：远超任何真实存档序列号，保证我们的写入
+# 一定获胜；同时远小于 56 位序列号上限 (2^56)，不会溢出 internal key。
+WAL_BATCH_SEQUENCE = 1 << 40
+
+
 def write_value_wal(ldb_dir: Path, key: bytes, value: bytes) -> Path:
     """Append a PUT record for ``key``/``value`` to the leveldb WAL.
 
@@ -377,17 +387,22 @@ def write_value_wal(ldb_dir: Path, key: bytes, value: bytes) -> Path:
         The path of the .log file that was written to.
     """
     ldb_dir = Path(ldb_dir)
-    log_files = sorted(
-        (f for f in ldb_dir.iterdir() if f.suffix == ".log"),
-        key=lambda f: _file_number(f.name),
-    )
-    if log_files:
-        log_path = log_files[-1]  # append to newest .log
-    else:
-        log_path = ldb_dir / f"{_next_file_number(ldb_dir):06d}.log"
+    # 始终新建一个更高编号、从 0 字节（即 32KB 块边界）起始的 .log 文件，
+    # 而不是向已有 .log 尾部追加。
+    #
+    # 原因：LevelDB 的 WAL 记录按 32KB 块分片（first/middle/last）。若向一个
+    # 末尾未对齐到块边界的旧 .log 追加，新记录的分片帧会接在旧记录残留的
+    # 半块之后，纯 Python 读取器在跨块重组时可能错位，导致读回的值损坏。
+    # 新建文件保证每条 WAL 记录都从块边界开始，分片重组无歧义。
+    #
+    # LevelDB 按文件号顺序重放 WAL，编号最大的 .log 最后应用，即"最后写入
+    # 获胜"，因此新建更高编号的文件即可覆盖同一 key 的旧值，语义与追加一致。
+    log_path = ldb_dir / f"{_next_file_number(ldb_dir):06d}.log"
 
     # Build WriteBatch: [seq(8)][count(4)][op=1][klen varint][key][vlen varint][value]
-    batch = struct.pack("<Q", 0) + struct.pack("<I", 1)  # seq=0, count=1
+    # seq 用 WAL_BATCH_SEQUENCE（而非 0）：见该常量说明，避免被已提交的高序列
+    # 旧值覆盖，确保回编后的改动在游戏里真正生效。
+    batch = struct.pack("<Q", WAL_BATCH_SEQUENCE) + struct.pack("<I", 1)  # seq, count=1
     batch += bytes([1])  # op = PUT
     batch += _varint_encode(len(key)) + key
     batch += _varint_encode(len(value)) + value

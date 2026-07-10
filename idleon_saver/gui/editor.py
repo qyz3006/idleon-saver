@@ -376,6 +376,8 @@ class EditorScreen(Screen):
             logger.error("还原失败：%s", exc)
             self.popup_error(text=f"还原失败：{exc}")
             return
+        # 关闭备份对话框，让编辑器立刻显示还原后的存档（否则对话框盖住、像是没反应）
+        self.dismiss_popup()
         self.status = "已还原"
         self.load_save()
 

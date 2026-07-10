@@ -148,6 +148,9 @@
     FileChooser:
         id: filechooser
         filters: root.filters
+        # 关键修复：默认隐藏文件/目录（如 Windows 的 AppData、以 . 开头的目录）
+        # 不可见，否则"手动选择"存档目录时无法导航进 AppData/Roaming/.../leveldb
+        show_hidden: True
         on_submit: root.done(filechooser.path, filechooser.selection)
         FileChooserIconLayout
         FileChooserListLayout

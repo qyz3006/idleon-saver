@@ -230,3 +230,17 @@ class TestWALWrite:
         """CRC32C must match LevelDB's expected values."""
         # Known CRC32C test vector: CRC32C of "123456789" = 0xE3069283
         assert pure_ldb._crc32c(b"123456789") == 0xE3069283
+
+    def test_wal_record_uses_high_sequence(self, tmp_path):
+        """WAL WriteBatch 必须使用足够高的序列号，否则真实 LevelDB 重放时
+        '序列号最大者获胜' 会让已提交到 SSTable 的旧值覆盖我们的写入，
+        导致改动静默丢失（Bug #3 的深层根因）。"""
+        user_key = b"_file://\x00\x01/E:/game/index.html:mySave"
+        log_path = pure_ldb.write_value_wal(tmp_path, user_key, b"\x01value")
+        raw = log_path.read_bytes()
+        # WAL 记录头: crc(4) + length(2) + type(1)；payload 即 WriteBatch:
+        # seq(8, LE) + count(4, LE) + ...
+        seq = struct.unpack("<Q", raw[7:15])[0]
+        assert seq == pure_ldb.WAL_BATCH_SEQUENCE
+        assert seq > 0
+        assert seq < (1 << 56)  # internal key 序列号上限，不能溢出

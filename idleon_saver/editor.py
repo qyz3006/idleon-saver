@@ -340,8 +340,9 @@ def write_leveldb(ldb: Path, stencyl: str, idleon: Optional[Path] = None) -> Non
 
     写入健壮性（两层回退）：
     1. plyvel 主路径：标准 LevelDB put（兼容老版本 DB）。
-    2. 纯 Python WAL 追加：直接往 .log 文件追加一条 WriteBatch PUT 记录，
-       不依赖 plyvel。解决 plyvel 打不开新版 Chromium LevelDB 无法写入的问题。
+    2. 纯 Python WAL 写入：新建一个更高编号的 .log 文件并写入一条
+       WriteBatch PUT 记录，不依赖 plyvel。解决 plyvel 打不开新版
+       Chromium LevelDB 无法写入的问题。
 
     Args:
         ldb: 存档目录（leveldb）。
@@ -352,6 +353,7 @@ def write_leveldb(ldb: Path, stencyl: str, idleon: Optional[Path] = None) -> Non
     value = b"\x01" + encoded
 
     # --- 第 1 层：plyvel 主路径 ---
+    plyvel_err = None
     if get_db is not None:
         try:
             with get_db(ldb) as db:  # type: ignore[operator]
@@ -364,12 +366,16 @@ def write_leveldb(ldb: Path, stencyl: str, idleon: Optional[Path] = None) -> Non
                     raise IOError(f"plyvel 写回失败：{exc}") from exc
             logger.info("已通过 plyvel 写回存档到 %s", ldb)
             return
-        except CorruptionError:
+        except CorruptionError as exc:
+            plyvel_err = exc
             logger.warning("plyvel 写入失败 (CorruptionError)，尝试纯 Python WAL 写入")
         except Exception as exc:
+            plyvel_err = exc
             logger.warning("plyvel 写入失败 (%s)，尝试纯 Python WAL 写入", exc)
+    else:
+        plyvel_err = "plyvel 不可用（未安装）"
 
-    # --- 第 2 层：纯 Python WAL 追加 ---
+    # --- 第 2 层：纯 Python WAL 写入 ---
     # 先用纯读取器找到 mySave 的 raw user key（WAL 用 user key，非 internal key）
     raw = _pure_read_value(ldb, MY_SAVE_SUFFIX)
     if raw is None:
@@ -383,7 +389,10 @@ def write_leveldb(ldb: Path, stencyl: str, idleon: Optional[Path] = None) -> Non
         log_path = write_value_wal(ldb, save_key, value)
         logger.info("已通过纯 Python WAL 写入存档到 %s", log_path)
     except Exception as exc:
-        raise IOError(f"纯 Python WAL 写入也失败：{exc}") from exc
+        # 两条路径都失败：把 plyvel 与 WAL 的错误一并返回，便于定位真实原因
+        raise IOError(
+            f"写入失败。plyvel 层：{plyvel_err!r}；纯 Python WAL 层：{exc!r}"
+        ) from exc
 
 
 def _find_raw_key(ldb: Path, key_suffix: bytes) -> Optional[bytes]:

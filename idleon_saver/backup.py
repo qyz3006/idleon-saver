@@ -44,7 +44,9 @@ def backup_leveldb(ldb: Path, root: Path) -> Path:
         # 避免同一秒内重复导致命名冲突：追加 pid 区分
         while dest.exists():
             dest = root / f"{BACKUP_PREFIX}{_timestamp()}_{os.getpid()}"
-        shutil.copytree(ldb, dest)
+        # 跳过 LOCK 文件：游戏运行时 LOCK 被占用，copytree 会因权限错误失败；
+        # 且还原/备份都不需要 LOCK（下次游戏打开会自行重建）。
+        shutil.copytree(ldb, dest, ignore=shutil.ignore_patterns("LOCK"))
         logger.info(f"已创建备份：{dest}")
         return dest
     except OSError as exc:
