@@ -18,7 +18,9 @@ LevelDB on-disk format to extract a single key's value:
   32 KB records: first + middle* + last).
 - Internal key format: ``user_key + 8-byte (seq<<8 | type)`` footer.
 
-It is **read-only** and never modifies the database files.
+It is **read-only** for SSTables but also supports **WAL append** for writing
+(``write_value_wal``), so the editor can save even when plyvel can't open
+the database.
 
 Scope / limitations
 -------------------
@@ -240,8 +242,12 @@ def read_value_by_key_suffix(ldb_dir: Path, key_suffix: bytes) -> Optional[bytes
     """Read the raw value for the newest key ending with ``key_suffix``.
 
     Scans WAL (``.log``) files first — they hold the most recent unflushed
-    writes — then ``.ldb`` SSTable files newest-first by file number. The first
-    match wins. This is correct for a quiescent DB (game closed).
+    writes — then ``.ldb`` SSTable files newest-first by file number.
+
+    WAL 语义：一个 .log 文件内可能有多条对同一 key 的写入（游戏多次存档），
+    **最后一条**才是最新值。因此遍历整个 WAL 取最后一条匹配，而非第一条。
+    多个 .log 文件时按文件号降序（最新优先），首个含匹配的 .log 的最后一条
+    即为当前值。.ldb 文件按文件号降序，首个匹配即为最新已刷盘值。
 
     Args:
         ldb_dir: Path to the leveldb directory.
@@ -254,20 +260,25 @@ def read_value_by_key_suffix(ldb_dir: Path, key_suffix: bytes) -> Optional[bytes
     if not ldb_dir.is_dir():
         return None
 
-    # 1) WAL files (newest writes, by ascending file number — but scan all,
-    #    last write wins in a single log so we take the highest-numbered log).
+    # 1) WAL files — newest (highest file number) first.
+    #    Within each .log, iterate ALL records and keep the LAST match
+    #    (later writes override earlier ones in LevelDB WAL semantics).
     log_files = sorted(
         (f for f in ldb_dir.iterdir() if f.suffix == ".log"),
         key=lambda f: _file_number(f.name),
+        reverse=True,
     )
     for lf in log_files:
         try:
             data = lf.read_bytes()
         except OSError:
             continue
+        last_value = None
         for key, value in _iter_wal(data):
             if key.endswith(key_suffix):
-                return value
+                last_value = value  # keep the LAST match (most recent write)
+        if last_value is not None:
+            return last_value
 
     # 2) SSTable files, newest (highest file number) first.
     ldb_files = sorted(

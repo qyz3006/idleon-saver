@@ -165,6 +165,24 @@ class TestSSTableReader:
         (tmp_path / "000002.log").write_bytes(record)
         assert pure_ldb.read_value_by_key_suffix(tmp_path, b"index.html:mySave") == b"\x01FROM_WAL"
 
+    def test_wal_last_write_wins(self, tmp_path):
+        """When a WAL has multiple writes to the same key, the LAST one wins
+        (LevelDB WAL semantics: later writes override earlier ones)."""
+        user_key = b"_file://\x00\x01/E:/game/index.html:mySave"
+        # WriteBatch with 2 puts to the same key: OLD then NEW
+        batch = struct.pack("<Q", 1) + struct.pack("<I", 2)  # seq=1, count=2
+        # put 1: OLD value
+        batch += bytes([1])
+        batch += _varint(len(user_key)) + user_key
+        batch += _varint(len(b"\x01OLD")) + b"\x01OLD"
+        # put 2: NEW value
+        batch += bytes([1])
+        batch += _varint(len(user_key)) + user_key
+        batch += _varint(len(b"\x01NEW")) + b"\x01NEW"
+        record = struct.pack("<I", 0) + struct.pack("<H", len(batch)) + bytes([1]) + batch
+        (tmp_path / "000001.log").write_bytes(record)
+        assert pure_ldb.read_value_by_key_suffix(tmp_path, b"index.html:mySave") == b"\x01NEW"
+
     def test_no_match_returns_none(self, tmp_path):
         user_key = b"_file://\x00\x01/E:/game/index.html:otherKey"
         (tmp_path / "000001.ldb").write_bytes(

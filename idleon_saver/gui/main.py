@@ -112,6 +112,40 @@ class FileChooserDialog(VBox):
     done = ObjectProperty(None)
     cancel = ObjectProperty(None)
 
+    def on_kv_post(self, _):
+        """加载完 KV 子控件后，在顶部插入盘符选择栏（仅 Windows）。
+
+        Windows 下 FileChooser 在驱动器根目录（如 C:/）无法再向上导航到
+        "此电脑"，用户无法切换到其他盘。这里在顶部加一行盘符按钮解决。
+        """
+        if not sys.platform.startswith("win"):
+            return
+        import string as _string
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.button import Button
+
+        bar = BoxLayout(
+            size_hint_y=None, height=32, spacing=2, padding=[2, 0]
+        )
+        for letter in _string.ascii_uppercase:
+            drive = f"{letter}:/"
+            if os.path.exists(drive):
+                btn = Button(
+                    text=f"{letter}:",
+                    size_hint_x=None,
+                    width=44,
+                    font_size=14,
+                )
+                btn.bind(on_release=lambda inst, d=drive: self._goto_drive(d))
+                bar.add_widget(btn)
+        # 插入到最前面（FileChooser 之前，垂直布局 index=0 = 顶部）
+        self.add_widget(bar, index=0)
+
+    def _goto_drive(self, drive):
+        fc = self.ids.get("filechooser")
+        if fc:
+            fc.path = drive
+
 
 class MyScreen(Screen):
     def dismiss_popup(self):
