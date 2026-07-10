@@ -141,6 +141,8 @@ class EditorScreen(Screen):
         super().__init__(**kwargs)
         # 备份根目录默认放在工具自身目录，与游戏存档隔离（设计 §7）
         self._backups_root = user_dir() / "backups"
+        # 操作互斥锁：任一后台操作（保存/备份/还原）进行中时禁止启动新操作
+        self._busy = False
         # 不为编辑框指定等宽字体：Kivy 默认字体已在 gui/main.py 启动期被
         # setup_cjk_font() 覆盖为系统 CJK 字体（微软雅黑/黑体），中文可正常
         # 渲染；额外指定 RobotoMono 等纯拉丁字体会覆盖掉 CJK 默认导致方块。
@@ -230,6 +232,8 @@ class EditorScreen(Screen):
         原始 wrapped 结构保留在 ``self._original_wrapped``，保存时把用户编辑
         叠回 wrapped 以保留类型标签供 StencylEncoder 编码。
         """
+        if self._busy:
+            return
         if not self._ensure_located():
             return
         self.status = "加载中"
@@ -251,7 +255,7 @@ class EditorScreen(Screen):
                     self.popup_error(
                         text=(
                             "存档读取失败。\n\n"
-                            f"{exc}\n\n"
+                            f"{err}\n\n"
                             "可尝试通过『备份管理』还原最近备份。"
                         )
                     )
@@ -302,27 +306,48 @@ class EditorScreen(Screen):
     # 保存（校验 → 二次确认 → 写前备份 → 编码回写）
     # ------------------------------------------------------------------ #
     def on_save(self):
-        """保存：解析用户编辑的 unwrapped JSON → 叠回原 wrapped 结构 → 校验 → 确认。"""
+        """保存：解析 JSON → 后台 overlay+validate → 主线程确认弹窗。
+
+        overlay_unwrapped 和 validate_wrapped_json 遍历整个大结构（~5.7MB
+        unwrapped + ~31.7MB wrapped），可能耗时 >1s，必须放后台线程，
+        否则点「保存」后整个 UI 冻结 1~3 秒才弹确认窗。
+        """
+        if self._busy:
+            return
         try:
             unwrapped = json.loads(self.ids.json_input.text)
         except json.JSONDecodeError as exc:
             self.popup_error(text=f"JSON 语法错误：{exc}")
             return
-        # 把用户编辑叠回原始 wrapped 结构（保留 start/end 类型标签）
         original = getattr(self, "_original_wrapped", None)
         if original is None:
             self.popup_error(text="内部错误：原始 wrapped 数据丢失，请重新加载存档。")
             return
-        try:
+        self.status = "校验中"
+        holder = {}
+
+        def worker():
             wrapped = overlay_unwrapped(original, unwrapped)
-        except Exception as exc:
-            self.popup_error(text=f"叠回 wrapped 结构失败：{exc}")
-            return
-        ok, msg = validate_wrapped_json(wrapped)
-        if not ok:
-            self.popup_error(text=f"校验未通过：{msg}")
-            return
-        self._confirm_save(wrapped)
+            ok, msg = validate_wrapped_json(wrapped)
+            holder["wrapped"] = wrapped
+            holder["ok"] = ok
+            holder["msg"] = msg
+
+        def on_done(err):
+            if err is not None:
+                logger.error("处理存档失败：%s", err)
+                self.popup_error(text=f"处理存档失败：{err}")
+                self.status = "处理失败"
+                return
+            if not holder["ok"]:
+                self.popup_error(text=f"校验未通过：{holder['msg']}")
+                self.status = "校验失败"
+                return
+            # 校验通过 → 弹二次确认窗，此时 UI 已恢复响应
+            self.status = "待确认"
+            self._confirm_save(holder["wrapped"])
+
+        self._run_in_thread(worker, on_done)
 
     def _confirm_save(self, data):
         """二次确认弹窗；确认后写前备份 + 编码回写。"""
@@ -343,6 +368,9 @@ class EditorScreen(Screen):
 
     def _do_save(self, data):
         """写前强制备份，然后编码回写（重活在后台线程，避免 UI 冻结）。"""
+        if self._busy:
+            return
+        self._busy = True
         self.dismiss_popup()
         self.status = "保存中"
         ldb = Path(self.ldb_path)
@@ -357,6 +385,7 @@ class EditorScreen(Screen):
             write_leveldb(ldb, stencyl, idleon)
 
         def on_done(err):
+            self._busy = False
             if err is not None:
                 logger.error("保存失败：%s", err)
                 self.popup_error(text=f"保存失败：{err}")
@@ -372,8 +401,11 @@ class EditorScreen(Screen):
     # ------------------------------------------------------------------ #
     def backup_now(self):
         """立即创建一份备份（不修改存档；重活在后台线程）。"""
+        if self._busy:
+            return
         if not self._ensure_located():
             return
+        self._busy = True
         ldb = Path(self.ldb_path)
         backups_root = self._backups_root
         holder = {}
@@ -383,6 +415,7 @@ class EditorScreen(Screen):
             holder["name"] = backup_leveldb(ldb, backups_root).name
 
         def on_done(err):
+            self._busy = False
             if err is not None:
                 logger.error("备份失败：%s", err)
                 self.popup_error(text=f"备份失败：{err}")
@@ -418,8 +451,11 @@ class EditorScreen(Screen):
 
     def restore_backup(self, backup_path):
         """从选中备份还原（还原前会再备份当前态；重活放后台线程）。"""
+        if self._busy:
+            return
         if self.ldb_path is None and not self._ensure_located():
             return
+        self._busy = True
         ldb = Path(self.ldb_path)
         idleon = Path(self.idleon_path) if self.idleon_path else None
         backups_root = self._backups_root
@@ -438,6 +474,7 @@ class EditorScreen(Screen):
             )
 
         def on_done(err):
+            self._busy = False
             if err is not None:
                 logger.error("还原失败：%s", err)
                 self.popup_error(text=f"还原失败：{err}")
